@@ -320,30 +320,24 @@ function calculateMA(closes: number[], period: number): number | null {
   return Math.round((sum / period) * 100) / 100
 }
 
-// 获取MA120
-export async function fetchMa120(symbol: string): Promise<number | null> {
-  const closes = await getLongTermKLine(symbol, 250)
-  if (!closes) return null
-  return calculateMA(closes, 120)
+export interface AllMAData {
+  ma60: number | null
+  ma120: number | null
+  ma250: number | null
+  ma500: number | null
+  ma1000: number | null
 }
 
-// 获取MA250
-export async function fetchMa250(symbol: string): Promise<number | null> {
-  const closes = await getLongTermKLine(symbol, 500)
-  if (!closes) return null
-  return calculateMA(closes, 250)
-}
-
-// 获取MA500（约2年）
-export async function fetchMa500(symbol: string): Promise<number | null> {
-  const closes = await getLongTermKLine(symbol, 1000)
-  if (!closes) return null
-  return calculateMA(closes, 500)
-}
-
-// 获取MA1000（约4年）
-export async function fetchMa1000(symbol: string): Promise<number | null> {
-  const closes = await getLongTermKLine(symbol, 2000)
-  if (!closes) return null
-  return calculateMA(closes, 1000)
+// 一次性获取所有均线（只发1次请求）
+export async function fetchAllMA(symbol: string): Promise<AllMAData> {
+  const empty: AllMAData = { ma60: null, ma120: null, ma250: null, ma500: null, ma1000: null }
+  const closes = await getLongTermKLine(symbol, 2500)
+  if (!closes) return empty
+  return {
+    ma60: calculateMA(closes, 60),
+    ma120: calculateMA(closes, 120),
+    ma250: calculateMA(closes, 250),
+    ma500: calculateMA(closes, 500),
+    ma1000: calculateMA(closes, 1000),
+  }
 }

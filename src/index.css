@@ -96,60 +96,87 @@
   }
 
   .dark {
-    /* ========== 基础色彩系统 (保持原有变量不变 - 向后兼容) ========== */
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    /* ========== 控制台暗色主题 ========== */
+    /* 基底：纯炭黑 / 深空灰 */
+    --background: 240 10% 5%;
+    --foreground: 240 10% 92%;
+    --card: 240 10% 7%;
+    --card-foreground: 240 10% 92%;
+    --popover: 240 10% 8%;
+    --popover-foreground: 240 10% 92%;
 
-    /* ========== 新增：扩展设计系统 ========== */
-    --surface: 217 33% 17%;
-    --surface-hover: 217 33% 20%;
-    --surface-active: 217 33% 23%;
+    /* 主色：低饱和电光青 */
+    --primary: 196 100% 50%;
+    --primary-foreground: 240 10% 5%;
+    --ring: 196 100% 50%;
 
-    /* 金融语义色彩 - 暗黑模式调整 */
-    --up-primary: 0 72% 61%;
-    --up-background: 0 72% 61% / 0.15;
-    --up-border: 0 72% 61% / 0.3;
+    /* 表面色系统 */
+    --surface: 240 10% 8%;
+    --surface-hover: 240 10% 11%;
+    --surface-active: 240 10% 14%;
 
-    --down-primary: 142 71% 45%;
-    --down-background: 142 71% 45% / 0.15;
-    --down-border: 142 71% 45% / 0.3;
+    /* 次要 / 静默 */
+    --secondary: 240 10% 11%;
+    --secondary-foreground: 240 10% 75%;
 
-    --flat-primary: 215 20% 65%;
-    --flat-background: 215 20% 65% / 0.1;
+    /*  muted / 弱化 */
+    --muted: 240 10% 11%;
+    --muted-foreground: 240 10% 50%;
 
-    /* 功能色彩 - 暗黑模式 */
-    --warning: 38 92% 55%;
-    --warning-background: 38 92% 55% / 0.15;
+    /* accent */
+    --accent: 240 10% 11%;
+    --accent-foreground: 240 10% 92%;
 
-    --info: 199 89% 55%;
-    --info-background: 199 89% 55% / 0.15;
+    /* 危险 / 涨色 (A股红涨) */
+    --destructive: 0 100% 59%;
+    --destructive-foreground: 0 0% 100%;
 
-    --success: 142 71% 45%;
-    --success-background: 142 71% 45% / 0.15;
+    /* 边框 / 输入框 */
+    --border: 240 10% 14%;
+    --input: 240 10% 14%;
 
-    /* 阴影系统 - 暗黑模式 */
-    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.3);
-    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 1px 2px -1px rgb(0 0 0 / 0.4);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.4);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.4);
-    --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.4), 0 8px 10px -6px rgb(0 0 0 / 0.4);
+    /* ========== 控制台扩展色 ========== */
+    /* 电光青 */
+    --console-cyan: 196 100% 50%;
+    --console-cyan-soft: 196 80% 50% / 0.15;
+    --console-cyan-glow: 196 100% 50% / 0.4;
+
+    /* 银蓝 */
+    --console-blue: 217 65% 58%;
+    --console-blue-soft: 217 65% 58% / 0.15;
+
+    /* 浅紫 */
+    --console-purple: 258 80% 72%;
+    --console-purple-soft: 258 80% 72% / 0.15;
+
+    /* 涨跌色 - A股规则 */
+    --up-primary: 0 100% 59%;
+    --up-background: 0 100% 59% / 0.1;
+    --up-border: 0 100% 59% / 0.25;
+    --up-glow: 0 100% 59% / 0.3;
+
+    --down-primary: 142 72% 52%;
+    --down-background: 142 72% 52% / 0.1;
+    --down-border: 142 72% 52% / 0.25;
+    --down-glow: 142 72% 52% / 0.3;
+
+    --flat-primary: 240 10% 55%;
+    --flat-background: 240 10% 55% / 0.1;
+
+    /* 功能色 */
+    --warning: 32 100% 60%;
+    --warning-background: 32 100% 60% / 0.1;
+    --info: 196 100% 50%;
+    --info-background: 196 100% 50% / 0.1;
+    --success: 142 72% 52%;
+    --success-background: 142 72% 52% / 0.1;
+
+    /* 阴影 - 暗色环境 */
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.04);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.04);
+    --shadow-lg: 0 10px 24px -4px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.04);
+    --shadow-xl: 0 20px 40px -8px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.06);
   }
 }
 
@@ -173,28 +200,225 @@
 }
 
 @layer utilities {
+  /* ========== 控制台暗色主题工具类 ========== */
+
+  /* 液态玻璃卡片 */
+  .console-card {
+    background: linear-gradient(
+      135deg,
+      rgb(15 15 25 / 0.85) 0%,
+      rgb(10 10 18 / 0.92) 100%
+    );
+    border: 1px solid rgb(255 255 255 / 0.06);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.03) inset,
+      0 2px 16px -4px rgb(0 0 0 / 0.6);
+  }
+  .console-card:hover {
+    border-color: rgb(255 255 255 / 0.1);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.05) inset,
+      0 2px 24px -4px rgb(0 0 0 / 0.7),
+      0 0 30px -8px rgb(0 210 240 / 0.06);
+  }
+
+  /* 全局弱渐变光带 - 顶部 */
+  .console-glow-bar {
+    position: relative;
+  }
+  .console-glow-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(0 210 255 / 0.3) 20%,
+      rgb(90 140 240 / 0.2) 50%,
+      rgb(160 120 255 / 0.15) 80%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  /* 发光文字 - 电光青 */
+  .console-text-glow {
+    color: rgb(0 240 255);
+    text-shadow: 0 0 12px rgb(0 210 255 / 0.4);
+  }
+
+  /* 数据高亮 - 等宽数字发光 */
+  .console-mono-glow {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: rgb(0 240 255);
+    text-shadow: 0 0 8px rgb(0 210 255 / 0.3);
+  }
+
+  /* 细线性图标容器 */
+  .console-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid rgb(255 255 255 / 0.06);
+    background: rgb(255 255 255 / 0.03);
+    color: rgb(200 200 220);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+  .console-icon-btn:hover {
+    background: rgb(255 255 255 / 0.06);
+    border-color: rgb(255 255 255 / 0.1);
+    color: rgb(0 210 255);
+    box-shadow: 0 0 12px -4px rgb(0 210 255 / 0.2);
+  }
+
+  /* 控制台按钮 - 主色 */
+  .console-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid rgb(0 210 255 / 0.25);
+    background: linear-gradient(
+      135deg,
+      rgb(0 180 220 / 0.15) 0%,
+      rgb(0 140 200 / 0.08) 100%
+    );
+    color: rgb(0 230 255);
+    box-shadow: 0 0 16px -4px rgb(0 210 255 / 0.15);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+  .console-btn-primary:hover {
+    background: linear-gradient(
+      135deg,
+      rgb(0 180 220 / 0.25) 0%,
+      rgb(0 140 200 / 0.15) 100%
+    );
+    border-color: rgb(0 210 255 / 0.4);
+    box-shadow: 0 0 20px -4px rgb(0 210 255 / 0.25);
+  }
+
+  /* 控制台按钮 - 幽灵 */
+  .console-btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid rgb(255 255 255 / 0.06);
+    background: rgb(255 255 255 / 0.03);
+    color: rgb(180 180 200);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+  .console-btn-ghost:hover {
+    background: rgb(255 255 255 / 0.06);
+    border-color: rgb(255 255 255 / 0.1);
+    color: rgb(220 220 240);
+  }
+
+  /* 控制台按钮 - 危险 */
+  .console-btn-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid rgb(255 60 60 / 0.2);
+    background: linear-gradient(
+      135deg,
+      rgb(255 60 60 / 0.1) 0%,
+      rgb(200 40 40 / 0.05) 100%
+    );
+    color: rgb(255 90 90);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+  .console-btn-danger:hover {
+    background: linear-gradient(
+      135deg,
+      rgb(255 60 60 / 0.18) 0%,
+      rgb(200 40 40 / 0.1) 100%
+    );
+    border-color: rgb(255 60 60 / 0.35);
+  }
+
+  /* 分隔线 - 控制台风格 */
+  .console-divider {
+    border: none;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(255 255 255 / 0.06) 20%,
+      rgb(255 255 255 / 0.06) 80%,
+      transparent 100%
+    );
+  }
+
+  /* 滚动条 - 控制台风格 */
+  .console-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .console-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .console-scrollbar::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 0.08);
+    border-radius: 10px;
+  }
+  .console-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 0.15);
+  }
+
+  /* 涨跌色快捷类 - 控制台风格 */
+  .text-up { color: rgb(255 75 75); }
+  .text-down { color: rgb(0 230 118); }
+  .text-flat { color: rgb(140 140 170); }
+
+  .bg-up { background-color: rgb(255 75 75 / 0.08); }
+  .bg-down { background-color: rgb(0 230 118 / 0.08); }
+
+  .border-up { border-color: rgb(255 75 75 / 0.2); }
+  .border-down { border-color: rgb(0 230 118 / 0.2); }
+
+  /* 价格闪烁 - 控制台风格 */
+  @keyframes console-flash-up {
+    0% { background-color: rgb(0 230 118 / 0.12); }
+    100% { background-color: transparent; }
+  }
+  @keyframes console-flash-down {
+    0% { background-color: rgb(255 75 75 / 0.12); }
+    100% { background-color: transparent; }
+  }
+  .animate-console-flash-up { animation: console-flash-up 0.6s ease-out; }
+  .animate-console-flash-down { animation: console-flash-down 0.6s ease-out; }
+
+  /* ========== 原有工具类 (保留) ========== */
   /* 涨跌色快捷类 */
-  .text-up {
-    color: hsl(var(--up-primary));
-  }
-  .text-down {
-    color: hsl(var(--down-primary));
-  }
-  .text-flat {
-    color: hsl(var(--flat-primary));
-  }
-  .bg-up {
-    background-color: hsl(var(--up-background));
-  }
-  .bg-down {
-    background-color: hsl(var(--down-background));
-  }
-  .border-up {
-    border-color: hsl(var(--up-border));
-  }
-  .border-down {
-    border-color: hsl(var(--down-border));
-  }
+  .text-up { color: hsl(var(--up-primary)); }
+  .text-down { color: hsl(var(--down-primary)); }
+  .text-flat { color: hsl(var(--flat-primary)); }
+  .bg-up { background-color: hsl(var(--up-background)); }
+  .bg-down { background-color: hsl(var(--down-background)); }
+  .border-up { border-color: hsl(var(--up-border)); }
+  .border-down { border-color: hsl(var(--down-border)); }
 
   /* 价格闪烁动画 */
   @keyframes flash-up {
@@ -205,12 +429,8 @@
     0% { background-color: hsl(var(--down-background)); }
     100% { background-color: transparent; }
   }
-  .animate-flash-up {
-    animation: flash-up 0.5s ease-out;
-  }
-  .animate-flash-down {
-    animation: flash-down 0.5s ease-out;
-  }
+  .animate-flash-up { animation: flash-up 0.5s ease-out; }
+  .animate-flash-down { animation: flash-down 0.5s ease-out; }
 
   /* 卡片悬停效果 */
   .card-hover {
@@ -235,14 +455,5 @@
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--muted-foreground) / 0.5);
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
   }
 }
