@@ -247,3 +247,103 @@ export async function fetchMa60(symbol: string): Promise<number | null> {
     }
   }
 }
+
+// 从东方财富获取长期K线数据（最多2500条，约10年日线）
+export async function fetchLongTermKLine(symbol: string, days: number = 2500): Promise<number[] | null> {
+  const secId = convertSymbolToSecId(symbol)
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secId}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}`
+
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const result = await response.json()
+  if (!result.data || !result.data.klines) return null
+
+  const klines: string[] = result.data.klines
+  const closes = klines.map((k: string) => {
+    const parts = k.split(',')
+    return parseFloat(parts[2])
+  }).filter((c: number) => !isNaN(c))
+
+  return closes.length > 0 ? closes : null
+}
+
+// 从新浪获取长期K线数据（最多800条）
+async function fetchLongTermKLineFromSina(symbol: string, days: number = 800): Promise<number[] | null> {
+  const sinaCode = convertSymbolToTencentFormat(symbol)
+  const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${sinaCode}&scale=240&ma=no&datalen=${days}`
+
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const data = await response.json()
+  if (!Array.isArray(data) || data.length === 0) return null
+
+  const closes = data
+    .map((item: any) => {
+      const close = parseFloat(item.close)
+      return isNaN(close) ? null : close
+    })
+    .filter((c: number | null): c is number => c !== null)
+
+  return closes.length > 0 ? closes : null
+}
+
+// 获取长期K线数据（东方财富优先，新浪备用）
+export async function getLongTermKLine(symbol: string, days: number = 2500): Promise<number[] | null> {
+  try {
+    const result = await fetchLongTermKLine(symbol, days)
+    if (result) return result
+
+    console.warn(`东方财富长期K线失效，切换到新浪备用源: ${symbol}`)
+    return await fetchLongTermKLineFromSina(symbol, Math.min(days, 800))
+  } catch (error) {
+    try {
+      console.warn(`东方财富长期K线异常，切换到新浪备用源: ${symbol}`)
+      return await fetchLongTermKLineFromSina(symbol, Math.min(days, 800))
+    } catch (fallbackError) {
+      console.error(`获取 ${symbol} 长期K线失败:`, fallbackError)
+      return null
+    }
+  }
+}
+
+// 计算移动平均线
+function calculateMA(closes: number[], period: number): number | null {
+  if (closes.length < period) {
+    if (closes.length === 0) return null
+    const sum = closes.reduce((a, b) => a + b, 0)
+    return Math.round((sum / closes.length) * 100) / 100
+  }
+  const lastPeriod = closes.slice(-period)
+  const sum = lastPeriod.reduce((a, b) => a + b, 0)
+  return Math.round((sum / period) * 100) / 100
+}
+
+// 获取MA120
+export async function fetchMa120(symbol: string): Promise<number | null> {
+  const closes = await getLongTermKLine(symbol, 250)
+  if (!closes) return null
+  return calculateMA(closes, 120)
+}
+
+// 获取MA250
+export async function fetchMa250(symbol: string): Promise<number | null> {
+  const closes = await getLongTermKLine(symbol, 500)
+  if (!closes) return null
+  return calculateMA(closes, 250)
+}
+
+// 获取MA500（约2年）
+export async function fetchMa500(symbol: string): Promise<number | null> {
+  const closes = await getLongTermKLine(symbol, 1000)
+  if (!closes) return null
+  return calculateMA(closes, 500)
+}
+
+// 获取MA1000（约4年）
+export async function fetchMa1000(symbol: string): Promise<number | null> {
+  const closes = await getLongTermKLine(symbol, 2000)
+  if (!closes) return null
+  return calculateMA(closes, 1000)
+}

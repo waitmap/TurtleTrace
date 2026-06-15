@@ -146,6 +146,36 @@ export interface RebuyPlan {
   enabled: boolean
 }
 
+// 回撤信息
+export interface DrawdownInfo {
+  percentile: number           // 0-100 回撤分位数
+  currentDrawdown: number      // 当前回撤幅度(%)
+  historicalPeak: number       // 历史最高价
+  dataPoints: number           // 使用的K线数量
+}
+
+// 动态批次
+export interface DynamicBatch {
+  batch: number
+  label: string                // 保守/适中/积极
+  fundRatio: number            // 资金比例 0-1
+  triggerScore: number         // 触发阈值
+  amount: number               // 计算后的金额
+  realCost: number             // 扣安全垫后
+  canExecute: boolean          // 当前是否可执行
+}
+
+// 回购评分数据
+export interface RebuyScoreData {
+  total: number                // 总分 0-100
+  safetyPadScore: number
+  trendScore: number
+  valueScore: number
+  timeScore: number
+  rating: '禁止回购' | '继续观察' | '轻仓回购' | '分批回购' | '积极回购'
+  dynamicBatch: DynamicBatch[]
+}
+
 // 回购计算结果
 export interface RebuyAdvice {
   status: '观望' | '第一批回购' | '第二批回购' | '第三批回购' | '跳级满仓'
