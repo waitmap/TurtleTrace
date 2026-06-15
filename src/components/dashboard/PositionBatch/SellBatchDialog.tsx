@@ -29,8 +29,10 @@ export function SellBatchDialog({
   emotionTags,
   reasonTags,
 }: SellBatchDialogProps) {
+  const todayStr = new Date().toISOString().split('T')[0]
   const [sellQuantity, setSellQuantity] = useState(0)
   const [sellPrice, setSellPrice] = useState(0)
+  const [sellDate, setSellDate] = useState(todayStr)
   const [selectedEmotion, setSelectedEmotion] = useState<EmotionTag | undefined>()
   const [selectedReasons, setSelectedReasons] = useState<ReasonTag[]>([])
 
@@ -79,6 +81,7 @@ export function SellBatchDialog({
   useEffect(() => {
     if (!open) {
       setSellQuantity(0)
+      setSellDate(todayStr)
       setSelectedEmotion(undefined)
       setSelectedReasons([])
     }
@@ -92,13 +95,14 @@ export function SellBatchDialog({
       return
     }
 
+    const txTimestamp = sellDate ? new Date(`${sellDate}T00:00:00+08:00`).getTime() : Date.now()
     const transaction: Transaction = {
-      id: `tx-${Date.now()}`,
+      id: `tx-${txTimestamp}`,
       type: 'sell',
       price: sellPrice,
       quantity: sellQuantity,
       amount: sellAmount,
-      timestamp: Date.now(),
+      timestamp: txTimestamp,
       emotion: selectedEmotion,
       reasons: selectedReasons.length > 0 ? selectedReasons : undefined,
     }
@@ -176,6 +180,15 @@ export function SellBatchDialog({
                 step="0.01"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">卖出日期</label>
+            <Input
+              type="date"
+              value={sellDate}
+              onChange={(e) => setSellDate(e.target.value)}
+              className="h-10"
+            />
           </div>
 
           {/* 卖出分配预览 */}

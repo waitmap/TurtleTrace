@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import { Button } from '../ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Input } from '../ui/input'
-import { Upload, FileSpreadsheet, FileJson, FileText, BookOpen, Database, Shield, Download, Bot, Eye, EyeOff, Check } from 'lucide-react'
+import { Upload, FileSpreadsheet, FileJson, FileText, BookOpen, Database, Shield, Download, Bot, Eye, EyeOff, Check, Table } from 'lucide-react'
 import type { Position, ProfitSummary } from '../../types'
 import {
   exportToCSV,
@@ -11,6 +11,7 @@ import {
   exportReviewsData,
   exportReviewsToMarkdown,
   importFromJSON,
+  importFromCSV,
   importReviewsData,
   saveImportedReviews
 } from '../../services/exportService'
@@ -24,6 +25,7 @@ interface DataExportProps {
 export function DataExport({ positions, summary, onImport }: DataExportProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const reviewsInputRef = useRef<HTMLInputElement>(null)
+  const csvInputRef = useRef<HTMLInputElement>(null)
   const [importError, setImportError] = useState('')
   const [reviewsCount, setReviewsCount] = useState<number | null>(null)
 
@@ -136,6 +138,32 @@ export function DataExport({ positions, summary, onImport }: DataExportProps) {
     reader.readAsText(file)
 
     // 重置文件输入
+    e.target.value = ''
+  }
+
+  const handleCsvImportClick = () => {
+    csvInputRef.current?.click()
+  }
+
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportError('')
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const content = event.target?.result as string
+      const result = importFromCSV(content)
+
+      if (result && result.length > 0) {
+        onImport(result)
+        alert(`成功导入 ${result.length} 条持仓数据`)
+      } else {
+        setImportError('导入失败：文件格式不正确或已损坏')
+      }
+    }
+    reader.readAsText(file)
+
     e.target.value = ''
   }
 
@@ -296,6 +324,21 @@ export function DataExport({ positions, summary, onImport }: DataExportProps) {
                 />
                 <Button
                   variant="outline"
+                  onClick={handleCsvImportClick}
+                  className="gap-2"
+                >
+                  <Table className="h-4 w-4" />
+                  导入CSV
+                </Button>
+                <input
+                  ref={csvInputRef}
+                  type="file"
+                  accept=".csv,.txt"
+                  className="hidden"
+                  onChange={handleCsvFileChange}
+                />
+                <Button
+                  variant="outline"
                   onClick={handleReviewsImportClick}
                   className="gap-2"
                 >
@@ -311,7 +354,7 @@ export function DataExport({ positions, summary, onImport }: DataExportProps) {
                 />
               </div>
               <p className="text-sm text-muted-foreground">
-                从之前导出的备份文件恢复数据
+                从备份文件（JSON）或 CSV 文件恢复数据。CSV 支持三种格式：①交易明细（交易类型/交易日期/成交价格/成交数量/情绪标签/交易原因）②批次数据（批次数量/批次成本价/解禁日期）③持仓概要（股票代码/股票名称/持仓数量/成本价）
               </p>
               {importError && (
                 <p className="text-sm text-destructive">

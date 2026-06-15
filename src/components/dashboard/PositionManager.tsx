@@ -73,10 +73,13 @@ export function PositionManager({
   onPositionsChange,
   currentAccountId,
 }: PositionManagerProps) {
+  const todayStr = new Date().toISOString().split('T')[0]
+
   const [showAddForm, setShowAddForm] = useState(false)
   const [symbol, setSymbol] = useState('')
   const [costPrice, setCostPrice] = useState('')
   const [quantity, setQuantity] = useState('')
+  const [buyDate, setBuyDate] = useState(todayStr)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -93,6 +96,7 @@ export function PositionManager({
   }>({ position: null, type: 'buy', show: false })
   const [tradePrice, setTradePrice] = useState('')
   const [tradeQuantity, setTradeQuantity] = useState('')
+  const [tradeDate, setTradeDate] = useState(todayStr)
 
   // 情绪标签和交易原因状态
   const [selectedEmotion, setSelectedEmotion] = useState<EmotionTag | null>(
@@ -203,13 +207,14 @@ export function PositionManager({
     }
 
     const buyAmount = cost * qty
+    const txTimestamp = buyDate ? new Date(`${buyDate}T00:00:00+08:00`).getTime() : Date.now()
     const transaction: Transaction = {
-      id: `${symbol}-${Date.now()}`,
+      id: `${symbol}-${txTimestamp}`,
       type: 'buy',
       price: cost,
       quantity: qty,
       amount: buyAmount,
-      timestamp: Date.now(),
+      timestamp: txTimestamp,
       emotion: selectedEmotion || undefined,
       reasons: selectedReasons.size > 0
         ? reasonTags.filter((r) => selectedReasons.has(r.id))
@@ -240,6 +245,7 @@ export function PositionManager({
     setSymbol('')
     setCostPrice('')
     setQuantity('')
+    setBuyDate(todayStr)
     setSelectedStock(null)
     setShowAddForm(false)
     setSelectedEmotion(null)
@@ -259,6 +265,7 @@ export function PositionManager({
     setTradeDialog({ position, type, show: true })
     setTradePrice('')
     setTradeQuantity('')
+    setTradeDate(todayStr)
     setSelectedEmotion(null)
     setSelectedReasons(new Set())
     setError('')
@@ -269,6 +276,7 @@ export function PositionManager({
     setTradeDialog({ position: null, type: 'buy', show: false })
     setTradePrice('')
     setTradeQuantity('')
+    setTradeDate(todayStr)
     setSelectedEmotion(null)
     setSelectedReasons(new Set())
     setError('')
@@ -296,13 +304,14 @@ export function PositionManager({
     }
 
     const amount = price * qty
+    const txTimestamp = tradeDate ? new Date(`${tradeDate}T00:00:00+08:00`).getTime() : Date.now()
     const transaction: Transaction = {
-      id: `${position.symbol}-${Date.now()}`,
+      id: `${position.symbol}-${txTimestamp}`,
       type,
       price,
       quantity: qty,
       amount,
-      timestamp: Date.now(),
+      timestamp: txTimestamp,
       emotion: selectedEmotion || undefined,
       reasons: selectedReasons.size > 0
         ? reasonTags.filter((r) => selectedReasons.has(r.id))
@@ -359,6 +368,7 @@ export function PositionManager({
               high: quote.high,
               low: quote.low,
               open: quote.open,
+              prevClose: quote.prevClose,
             }
           }
           return pos
@@ -702,6 +712,17 @@ export function PositionManager({
                   />
                 </div>
               </div>
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground font-medium">
+                  买入日期
+                </label>
+                <Input
+                  type="date"
+                  value={buyDate}
+                  onChange={(e) => setBuyDate(e.target.value)}
+                  className="h-10"
+                />
+              </div>
 
               {/* 情绪标签选择 */}
               <div className="space-y-2">
@@ -1034,18 +1055,17 @@ export function PositionManager({
                                 >
                                   <div className="flex items-center justify-between text-sm">
                                     <div className="flex items-center gap-3">
-                                      <Badge
-                                        variant={
-                                          transaction.type === 'buy'
-                                            ? 'success'
-                                            : 'danger'
-                                        }
-                                        className="text-xs font-mono"
-                                      >
-                                        {transaction.type === 'buy'
-                                          ? '买入'
-                                          : '卖出'}
-                                      </Badge>
+                                      {(() => {
+                                        const isDividend = transaction.reasons?.some(r => r.name === '现金分红')
+                                        return (
+                                          <Badge
+                                            variant={isDividend ? 'secondary' : transaction.type === 'buy' ? 'success' : 'danger'}
+                                            className="text-xs font-mono"
+                                          >
+                                            {isDividend ? '分红' : transaction.type === 'buy' ? '买入' : '卖出'}
+                                          </Badge>
+                                        )
+                                      })()}
                                       <span className="text-muted-foreground">
                                         {new Date(
                                           transaction.timestamp
@@ -1174,6 +1194,17 @@ export function PositionManager({
                   value={tradeQuantity}
                   onChange={(e) => setTradeQuantity(e.target.value)}
                   className="h-10 font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-muted-foreground font-medium">
+                  交易日期
+                </label>
+                <Input
+                  type="date"
+                  value={tradeDate}
+                  onChange={(e) => setTradeDate(e.target.value)}
+                  className="h-10"
                 />
               </div>
 

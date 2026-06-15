@@ -13,10 +13,7 @@ interface EastMoneyResponse {
 }
 
 // 将股票代码转换为东方财富API的secid格式
-// 深圳股票(SZ): 0.{code}
-// 上海股票(SH): 1.{code}
 function convertSymbolToSecId(symbol: string): string {
-  // 支持两种格式: 600519.SH 或 SH.600519
   let code = symbol
   let market = ''
 
@@ -30,49 +27,131 @@ function convertSymbolToSecId(symbol: string): string {
     market = parts[0]
   }
 
-  // 上海股票: 前缀1, 深圳股票: 前缀0
   const marketPrefix = market === 'SH' ? '1' : '0'
   return `${marketPrefix}.${code}`
 }
 
+// 将股票代码转换为腾讯行情格式: sh600519 / sz000002
+function convertSymbolToTencentFormat(symbol: string): string {
+  let code = symbol
+  let market = ''
+
+  if (symbol.includes('.')) {
+    const [symbolCode, suffix] = symbol.split('.')
+    code = symbolCode
+    market = suffix.toLowerCase()
+  } else if (symbol.toUpperCase().startsWith('SH')) {
+    code = symbol.slice(2)
+    market = 'sh'
+  } else if (symbol.toUpperCase().startsWith('SZ')) {
+    code = symbol.slice(2)
+    market = 'sz'
+  }
+
+  if (!market) {
+    if (code.startsWith('60') || code.startsWith('68')) market = 'sh'
+    else if (code.startsWith('00') || code.startsWith('30') || code.startsWith('02')) market = 'sz'
+  }
+
+  return `${market}${code}`
+}
+
 // 从东方财富API获取股票实时行情
+async function getStockQuoteFromEastMoney(symbol: string): Promise<StockQuote | null> {
+  const secId = convertSymbolToSecId(symbol)
+  const url = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secId}&fields=f43,f44,f45,f46,f58,f60`
+
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const result: EastMoneyResponse = await response.json()
+  if (!result.data || !result.data.f58) return null
+
+  const { f43: price, f44: high, f45: low, f46: open, f58: name, f60: prevClose } = result.data
+  const change = prevClose ? price - prevClose : 0
+  const changePercent = prevClose ? (change / prevClose) * 100 : 0
+
+  return {
+    symbol,
+    name,
+    price: Number(price.toFixed(2)),
+    change: Number(change.toFixed(2)),
+    changePercent: Number(changePercent.toFixed(2)),
+    open: Number(open.toFixed(2)),
+    high: Number(high.toFixed(2)),
+    low: Number(low.toFixed(2)),
+    prevClose: Number((prevClose || 0).toFixed(2)),
+    volume: 0,
+    timestamp: Date.now(),
+  }
+}
+
+// 从腾讯行情API获取股票实时行情（备用源，东方财富不可用时自动切换）
+async function getStockQuoteFromTencent(symbol: string): Promise<StockQuote | null> {
+  const tencentCode = convertSymbolToTencentFormat(symbol)
+  const url = `https://qt.gtimg.cn/q=${tencentCode}`
+
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const text = await response.text()
+
+  // 解析腾讯返回的文本格式: v_sh600519="field1~field2~...~fieldN";
+  const match = text.match(/"([^"]+)"/)
+  if (!match) return null
+
+  const fields = match[1].split('~')
+  if (fields.length < 35) return null
+
+  const name = fields[1]
+  if (!name) return null
+
+  const price = parseFloat(fields[3])
+  const prevClose = parseFloat(fields[4])
+  const open = parseFloat(fields[5])
+  const high = parseFloat(fields[33])
+  const low = parseFloat(fields[34])
+
+  if (isNaN(price) || isNaN(prevClose)) return null
+
+  const change = price - prevClose
+  const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0
+
+  return {
+    symbol,
+    name,
+    price: Number(price.toFixed(2)),
+    change: Number(change.toFixed(2)),
+    changePercent: Number(changePercent.toFixed(2)),
+    open: isNaN(open) ? 0 : Number(open.toFixed(2)),
+    high: isNaN(high) ? 0 : Number(high.toFixed(2)),
+    low: isNaN(low) ? 0 : Number(low.toFixed(2)),
+    prevClose: Number(prevClose.toFixed(2)),
+    volume: 0,
+    timestamp: Date.now(),
+  }
+}
+
+// 获取股票实时行情（自动切换备用源）
 export async function getStockQuote(symbol: string): Promise<StockQuote | null> {
   try {
-    const secId = convertSymbolToSecId(symbol)
-    const url = `https://push2.eastmoney.com/api/qt/stock/get?fltt=2&invt=2&secid=${secId}&fields=f43,f44,f45,f46,f58,f60`
+    const result = await getStockQuoteFromEastMoney(symbol)
+    if (result) return result
 
-    const response = await fetch(url)
-    if (!response.ok) {
-      return null
-    }
+    console.warn(`东方财富行情失效，切换到腾讯备用源: ${symbol}`)
+    const fallback = await getStockQuoteFromTencent(symbol)
+    if (fallback) return fallback
 
-    const result: EastMoneyResponse = await response.json()
-
-    if (!result.data || !result.data.f58) {
-      return null
-    }
-
-    const { f43: price, f44: high, f45: low, f46: open, f58: name, f60: prevClose } = result.data
-
-    // 计算涨跌幅
-    const change = prevClose ? price - prevClose : 0
-    const changePercent = prevClose ? (change / prevClose) * 100 : 0
-
-    return {
-      symbol,
-      name,
-      price: Number(price.toFixed(2)),
-      change: Number(change.toFixed(2)),
-      changePercent: Number(changePercent.toFixed(2)),
-      open: Number(open.toFixed(2)),
-      high: Number(high.toFixed(2)),
-      low: Number(low.toFixed(2)),
-      volume: 0, // API未返回成交量数据
-      timestamp: Date.now(),
-    }
-  } catch (error) {
-    console.error(`获取股票 ${symbol} 行情失败:`, error)
     return null
+  } catch (error) {
+    // 东方财富出错，尝试腾讯
+    try {
+      console.warn(`东方财富行情异常，切换到腾讯备用源: ${symbol}`)
+      return await getStockQuoteFromTencent(symbol)
+    } catch (fallbackError) {
+      console.error(`获取股票 ${symbol} 行情失败:`, fallbackError)
+      return null
+    }
   }
 }
 
@@ -96,33 +175,75 @@ export function getSupportedStocks(): Array<{ symbol: string; name: string }> {
 }
 
 // 从东方财富K线数据计算MA60
+async function fetchMa60FromEastMoney(symbol: string): Promise<number | null> {
+  const secId = convertSymbolToSecId(symbol)
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secId}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=120`
+
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const result = await response.json()
+  if (!result.data || !result.data.klines) return null
+
+  const klines: string[] = result.data.klines
+  const closes = klines.map((k: string) => {
+    const parts = k.split(',')
+    return parseFloat(parts[2])
+  })
+
+  if (closes.length < 60) {
+    const sum = closes.reduce((a: number, b: number) => a + b, 0)
+    return Math.round((sum / closes.length) * 100) / 100
+  }
+
+  const last60 = closes.slice(-60)
+  const sum = last60.reduce((a: number, b: number) => a + b, 0)
+  return Math.round((sum / 60) * 100) / 100
+}
+
+// 从新浪获取日K线计算MA60（备用源）
+async function fetchMa60FromSina(symbol: string): Promise<number | null> {
+  const sinaCode = convertSymbolToTencentFormat(symbol)
+  const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${sinaCode}&scale=240&ma=no&datalen=120`
+
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const data = await response.json()
+  if (!Array.isArray(data) || data.length === 0) return null
+
+  const closes = data
+    .map((item: any) => {
+      const close = parseFloat(item.close)
+      return isNaN(close) ? null : close
+    })
+    .filter((c: number | null): c is number => c !== null)
+
+  if (closes.length < 60) {
+    const sum = closes.reduce((a: number, b: number) => a + b, 0)
+    return Math.round((sum / closes.length) * 100) / 100
+  }
+
+  const last60 = closes.slice(-60)
+  const sum = last60.reduce((a: number, b: number) => a + b, 0)
+  return Math.round((sum / 60) * 100) / 100
+}
+
+// 获取MA60（自动切换备用源）
 export async function fetchMa60(symbol: string): Promise<number | null> {
   try {
-    const secId = convertSymbolToSecId(symbol)
-    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secId}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=120`
+    const result = await fetchMa60FromEastMoney(symbol)
+    if (result !== null) return result
 
-    const response = await fetch(url)
-    if (!response.ok) return null
-
-    const result = await response.json()
-    if (!result.data || !result.data.klines) return null
-
-    const klines: string[] = result.data.klines
-    const closes = klines.map((k: string) => {
-      const parts = k.split(',')
-      return parseFloat(parts[2])
-    })
-
-    if (closes.length < 60) {
-      const sum = closes.reduce((a: number, b: number) => a + b, 0)
-      return Math.round((sum / closes.length) * 100) / 100
-    }
-
-    const last60 = closes.slice(-60)
-    const sum = last60.reduce((a: number, b: number) => a + b, 0)
-    return Math.round((sum / 60) * 100) / 100
+    console.warn(`东方财富K线失效，切换到新浪备用源: ${symbol}`)
+    return await fetchMa60FromSina(symbol)
   } catch (error) {
-    console.error(`获取 ${symbol} MA60 失败:`, error)
-    return null
+    try {
+      console.warn(`东方财富K线异常，切换到新浪备用源: ${symbol}`)
+      return await fetchMa60FromSina(symbol)
+    } catch (fallbackError) {
+      console.error(`获取 ${symbol} MA60 失败:`, fallbackError)
+      return null
+    }
   }
 }

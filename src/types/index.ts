@@ -68,6 +68,7 @@ export interface Position {
   high?: number         // 当日最高价
   low?: number          // 当日最低价
   open?: number         // 当日开盘价
+  prevClose?: number    // 昨收价（用于计算今日盈亏）
   transactions: Transaction[]  // 交易记录
   totalBuyAmount: number  // 累计买入金额（用于计算成本）
   totalSellAmount: number // 累计卖出金额（用于计算成本）
@@ -84,6 +85,7 @@ export interface StockQuote {
   open: number          // 开盘价
   high: number          // 最高价
   low: number           // 最低价
+  prevClose: number     // 昨收价
   volume: number        // 成交量
   timestamp: number     // 时间戳
 }

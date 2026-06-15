@@ -8,9 +8,10 @@ import { EventCalendar } from './components/dashboard/eventCalendar/EventCalenda
 import { RebuyDashboard } from './components/dashboard/RebuyDashboard'
 import { AccountSwitcher } from './components/dashboard/AccountSwitcher'
 import { AccountManager } from './components/dashboard/AccountManager'
-import { LineChart, TrendingUp, Newspaper, Database, BookOpen, Menu, X, Wallet, ChevronRight, Building2, CalendarDays, RefreshCw } from 'lucide-react'
+import { LineChart, TrendingUp, Newspaper, Database, BookOpen, Menu, X, Wallet, ChevronRight, Building2, CalendarDays, RefreshCw, Smartphone } from 'lucide-react'
 import { TCalculatorTrigger } from './components/dashboard/TCalculator'
 import { WelcomeWizard } from './components/welcome'
+import { MobileApp } from './MobileApp'
 import type { Position, ProfitSummary } from './types'
 import type { Account } from './types/account'
 import { calculateProfitSummary, calculateClearedProfit } from './utils/calculations'
@@ -43,8 +44,7 @@ function App() {
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null)  // null 表示全部账户
 
   // UI 状态
-  const [showClearedPositionsInOverview, setShowClearedPositionsInOverview] = useState(false)
-  const [showClearedProfitCard, setShowClearedProfitCard] = useState(false)
+  const [showClearedProfitCard, setShowClearedProfitCard] = useState(true)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [summary, setSummary] = useState<ProfitSummary>({
     totalCost: 0,
@@ -91,10 +91,7 @@ function App() {
 
   // 计算收益汇总
   useEffect(() => {
-    const filteredPositions = showClearedPositionsInOverview
-      ? positions
-      : positions.filter(p => p.quantity > 0)
-    const newSummary = calculateProfitSummary(filteredPositions)
+    const newSummary = calculateProfitSummary(positions)
 
     // 计算清仓股票收益
     const clearedProfit = calculateClearedProfit(positions) ?? undefined
@@ -103,7 +100,7 @@ function App() {
       ...newSummary,
       clearedProfit,
     })
-  }, [positions, showClearedPositionsInOverview])
+  }, [positions])
 
   // 处理账户切换
   const handleAccountChange = useCallback((accountId: string | null) => {
@@ -203,6 +200,31 @@ function App() {
     { id: 'data' as const, label: '设置', icon: Database },
   ]
 
+  // 手机版模式检测
+  const [mobileMode, setMobileMode] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.has('mobile')) {
+      localStorage.setItem('mobileMode', 'true')
+      return true
+    }
+    return localStorage.getItem('mobileMode') === 'true'
+  })
+
+  const switchToMobile = useCallback(() => {
+    localStorage.setItem('mobileMode', 'true')
+    setMobileMode(true)
+  }, [])
+
+  const switchToDesktop = useCallback(() => {
+    localStorage.removeItem('mobileMode')
+    setMobileMode(false)
+  }, [])
+
+  // 手机版渲染
+  if (mobileMode) {
+    return <MobileApp onSwitchToDesktop={switchToDesktop} />
+  }
+
   // 欢迎页完成处理
   const handleWelcomeComplete = useCallback(() => {
     setShowWelcome(false)
@@ -282,11 +304,18 @@ function App() {
         </nav>
 
         {/* 侧边栏底部 */}
-        <div className="p-4 border-t text-xs text-muted-foreground">
+        <div className="p-4 border-t text-xs text-muted-foreground space-y-2">
           <div className="flex items-center justify-center gap-1">
             <span>龟迹复盘</span>
             <span>v1.0</span>
           </div>
+          <button
+            onClick={switchToMobile}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs text-primary hover:text-primary/80 transition-colors rounded-md hover:bg-primary/5"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            <span>手机版</span>
+          </button>
         </div>
       </aside>
 
@@ -328,11 +357,9 @@ function App() {
           {activeTab === 'overview' && (
             <ProfitDashboard
               summary={summary}
-              showClearedPositions={showClearedPositionsInOverview}
-              onToggleClearedPositions={() => setShowClearedPositionsInOverview(!showClearedPositionsInOverview)}
-              hasClearedPositions={positions.some(p => p.quantity <= 0)}
               showClearedProfitCard={showClearedProfitCard}
               onToggleClearedProfitCard={() => setShowClearedProfitCard(!showClearedProfitCard)}
+              positions={positions}
             />
           )}
 

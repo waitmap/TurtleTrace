@@ -33,6 +33,62 @@ export function getLastSellPrice(transactions: Transaction[]): number | null {
   return sells.length > 0 ? sells[0].price : null
 }
 
+// 获取回购基准价格
+export function getRebuyBasePrice(position: Position): number | null {
+  if (position.quantity === 0) {
+    // 已清仓：用最近卖出价
+    return getLastSellPrice(position.transactions)
+  } else {
+    // 有持仓：用成本价
+    return position.costPrice > 0 ? position.costPrice : null
+  }
+}
+
+// 批次模拟数据结构
+export interface BatchSimulation {
+  batch: number
+  dropPercent: number
+  buyPrice: number
+  investAmount: number
+  realCost: number
+  profitIfBackToBase: number
+}
+
+// 批次模拟计算
+export function simulateBatchRebuy(
+  position: Position,
+  shares: number,
+  useCurrentPrice: boolean = false,
+): BatchSimulation[] {
+  const basePrice = getRebuyBasePrice(position)
+  if (!basePrice || shares <= 0) return []
+
+  const safetyCushion = calculateRealizedProfit(position.transactions)
+  const currentPrice = position.currentPrice
+
+  const batches = [
+    { batch: 1, dropPercent: 5 },
+    { batch: 2, dropPercent: 10 },
+    { batch: 3, dropPercent: 15 },
+  ]
+
+  return batches.map(({ batch, dropPercent }) => {
+    const buyPrice = useCurrentPrice ? currentPrice : basePrice * (1 - dropPercent / 100)
+    const investAmount = shares * buyPrice
+    const realCost = investAmount - safetyCushion
+    const profitIfBackToBase = (shares * basePrice) - realCost
+
+    return {
+      batch,
+      dropPercent,
+      buyPrice: Math.round(buyPrice * 100) / 100,
+      investAmount: Math.round(investAmount * 100) / 100,
+      realCost: Math.round(realCost * 100) / 100,
+      profitIfBackToBase: Math.round(profitIfBackToBase * 100) / 100,
+    }
+  })
+}
+
 // 计算回购建议
 export function calculateRebuyAdvice(
   position: Position,
@@ -42,11 +98,11 @@ export function calculateRebuyAdvice(
   const { totalBudget, batchesExecuted } = plan
   const currentPrice = position.currentPrice
   const realizedProfit = calculateRealizedProfit(position.transactions)
-  const lastSellPrice = getLastSellPrice(position.transactions)
+  const basePrice = getRebuyBasePrice(position)
 
   const distanceToMa60 = ma60 > 0 ? ((currentPrice - ma60) / ma60) * 100 : 0
-  const dropPercent = lastSellPrice
-    ? ((currentPrice - lastSellPrice) / lastSellPrice) * 100
+  const dropPercent = basePrice
+    ? ((currentPrice - basePrice) / basePrice) * 100
     : 0
 
   const batchRatios = [0.3, 0.4, 0.3]
@@ -90,8 +146,8 @@ export function calculateRebuyAdvice(
   // 构建摘要
   let summary: string
   if (status === '观望') {
-    if (!lastSellPrice) {
-      summary = '暂无卖出记录，设置安全垫后等待价格回调'
+    if (!basePrice) {
+      summary = position.quantity === 0 ? '暂无卖出记录，无法计算安全垫' : '暂无成本价，无法计算回购基准'
     } else {
       const needDrop = batchesExecuted === 0 ? -5 : batchesExecuted === 1 ? -10 : -15
       const remainingDrop = Math.abs(needDrop - dropPercent)
