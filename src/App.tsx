@@ -5,9 +5,10 @@ import { NewsFeed } from './components/dashboard/NewsFeed'
 import { DataExport } from './components/dashboard/DataExport'
 import { ReviewTab } from './components/dashboard/review/ReviewTab'
 import { EventCalendar } from './components/dashboard/eventCalendar/EventCalendar'
+import { RebuyDashboard } from './components/dashboard/RebuyDashboard'
 import { AccountSwitcher } from './components/dashboard/AccountSwitcher'
 import { AccountManager } from './components/dashboard/AccountManager'
-import { LineChart, TrendingUp, Newspaper, Database, BookOpen, Menu, X, Wallet, ChevronRight, Building2, CalendarDays } from 'lucide-react'
+import { LineChart, TrendingUp, Newspaper, Database, BookOpen, Menu, X, Wallet, ChevronRight, Building2, CalendarDays, RefreshCw } from 'lucide-react'
 import { TCalculatorTrigger } from './components/dashboard/TCalculator'
 import { WelcomeWizard } from './components/welcome'
 import type { Position, ProfitSummary } from './types'
@@ -52,7 +53,7 @@ function App() {
     totalProfitPercent: 0,
     positions: [],
   })
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'news' | 'data' | 'review' | 'calendar' | 'accounts'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'news' | 'data' | 'review' | 'calendar' | 'rebuy' | 'accounts'>('overview')
 
   // 初始化账户系统和数据迁移
   useEffect(() => {
@@ -127,13 +128,10 @@ function App() {
 
   // 持仓变化处理
   const handlePositionsChange = useCallback((newPositions: Position[]) => {
-    // 获取当前操作的账户ID（全部账户视图时使用默认账户）
     const targetAccountId = currentAccountId || accounts.find(a => a.isDefault)?.id
 
+    let merged: Position[]
     if (currentAccountId === null) {
-      // 全部账户视图：需要智能合并
-      // 1. 保留所有不属于目标账户的持仓
-      // 2. 用新持仓替换目标账户的持仓
       const otherAccountPositions = allPositions.filter(
         p => p.accountId !== targetAccountId
       )
@@ -141,45 +139,37 @@ function App() {
         ...p,
         accountId: targetAccountId || p.accountId,
       }))
-      setAllPositions([...otherAccountPositions, ...updatedPositions])
+      merged = [...otherAccountPositions, ...updatedPositions]
     } else {
-      // 指定账户视图：合并其他账户的数据
       const otherAccountPositions = allPositions.filter(p => p.accountId !== currentAccountId)
       const updatedPositions = newPositions.map(p => ({
         ...p,
         accountId: currentAccountId,
       }))
-      setAllPositions([...otherAccountPositions, ...updatedPositions])
+      merged = [...otherAccountPositions, ...updatedPositions]
     }
+
+    setAllPositions(merged)
+    // 同步写入 localStorage，确保立即持久化
+    forceSavePositions(merged)
   }, [currentAccountId, allPositions, accounts])
 
+  // 强制保存到 localStorage（同步调用，确保写盘）
+  function forceSavePositions(data: Position[]) {
+    if (data.length > 0) {
+      localStorage.setItem('stock-positions', JSON.stringify(data))
+    } else {
+      localStorage.removeItem('stock-positions')
+    }
+  }
   // 保存到 localStorage（当 allPositions 变化时）
   useEffect(() => {
     const currentData = JSON.stringify(allPositions)
 
-    // 场景1：还未初始化（prevPositionsRef 为 null）
-    if (prevPositionsRef.current === null) {
-      // 如果当前数据不为空，说明是初始化后的首次有效数据
-      if (allPositions.length > 0) {
-        prevPositionsRef.current = currentData
-        localStorage.setItem('stock-positions', currentData)
-      }
-      // 如果数据为空，跳过（初始化时状态可能还是空的）
-      return
-    }
-
-    // 场景2：数据没有变化，跳过保存
-    if (currentData === prevPositionsRef.current) {
-      return
-    }
-
-    // 场景3：执行保存
-    prevPositionsRef.current = currentData
-
     if (allPositions.length > 0) {
       localStorage.setItem('stock-positions', currentData)
-    } else {
-      localStorage.removeItem('stock-positions')
+      prevPositionsRef.current = currentData
+      console.log('持仓已保存', allPositions.length, '条')
     }
   }, [allPositions])
 
@@ -207,6 +197,7 @@ function App() {
     { id: 'positions' as const, label: '持仓管理', icon: TrendingUp },
     { id: 'review' as const, label: '复盘管理', icon: BookOpen },
     { id: 'calendar' as const, label: '消息日历', icon: CalendarDays },
+    { id: 'rebuy' as const, label: '回购计划', icon: RefreshCw },
     { id: 'news' as const, label: '新闻快讯', icon: Newspaper },
     { id: 'accounts' as const, label: '账户管理', icon: Building2 },
     { id: 'data' as const, label: '设置', icon: Database },
@@ -368,6 +359,12 @@ function App() {
 
           {activeTab === 'calendar' && (
             <EventCalendar />
+          )}
+
+          {activeTab === 'rebuy' && (
+            <RebuyDashboard
+              positions={positions}
+            />
           )}
 
           {activeTab === 'accounts' && (

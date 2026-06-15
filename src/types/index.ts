@@ -131,6 +131,32 @@ export interface PositionProfit {
   nextLow?: number
   nextSecondaryHigh?: number
   nextSecondaryLow?: number
+  // 回购计划相关
+  rebuyPlan?: RebuyPlan
+  realizedProfit?: number
+}
+
+// 回购计划配置
+export interface RebuyPlan {
+  totalBudget: number
+  manualMa60?: number
+  batchesExecuted: number
+  enabled: boolean
+}
+
+// 回购计算结果
+export interface RebuyAdvice {
+  status: '观望' | '第一批回购' | '第二批回购' | '第三批回购' | '跳级满仓'
+  statusColor: string
+  dropPercent: number
+  distanceToMa60: number
+  safetyCushion: number
+  batchAmount: number
+  batchShares: number
+  suggestPrice: number
+  totalBudgetLeft: number
+  summary: string
+  ma60Price: number
 }
 
 // 新闻条目

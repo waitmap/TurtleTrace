@@ -94,3 +94,35 @@ export async function getStockName(symbol: string): Promise<string | null> {
 export function getSupportedStocks(): Array<{ symbol: string; name: string }> {
   return []
 }
+
+// 从东方财富K线数据计算MA60
+export async function fetchMa60(symbol: string): Promise<number | null> {
+  try {
+    const secId = convertSymbolToSecId(symbol)
+    const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secId}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=120`
+
+    const response = await fetch(url)
+    if (!response.ok) return null
+
+    const result = await response.json()
+    if (!result.data || !result.data.klines) return null
+
+    const klines: string[] = result.data.klines
+    const closes = klines.map((k: string) => {
+      const parts = k.split(',')
+      return parseFloat(parts[2])
+    })
+
+    if (closes.length < 60) {
+      const sum = closes.reduce((a: number, b: number) => a + b, 0)
+      return Math.round((sum / closes.length) * 100) / 100
+    }
+
+    const last60 = closes.slice(-60)
+    const sum = last60.reduce((a: number, b: number) => a + b, 0)
+    return Math.round((sum / 60) * 100) / 100
+  } catch (error) {
+    console.error(`获取 ${symbol} MA60 失败:`, error)
+    return null
+  }
+}

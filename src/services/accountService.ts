@@ -30,8 +30,10 @@ function getStorage(): AccountsStorage {
       console.error('Failed to parse accounts storage:', e)
     }
   }
-  // 返回默认存储结构
-  return createDefaultStorage()
+  // 创建默认存储并立即持久化，确保账户ID跨会话稳定
+  const data = createDefaultStorage()
+  saveStorage(data)
+  return data
 }
 
 // 创建默认存储结构
