@@ -1,8 +1,9 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import {
   RefreshCw, Shield,
   Loader2, ChevronDown, ChevronUp,
-  AlertTriangle,
+  AlertTriangle, Sparkles,
 } from 'lucide-react'
 import type { Position, RebuyPlan, RebuyScoreData } from '../../types'
 import { calculateRealizedProfit, calculateSafetyCushion, getRebuyBasePrice, simulateBatchRebuy } from '../../services/rebuyService'
@@ -10,8 +11,11 @@ import { calculateRebuyScore } from '../../services/rebuyScoreService'
 import {
   getRebuyPlan, saveRebuyPlan,
 } from '../../services/rebuyStorageService'
-import { fetchAllMA, getStockQuote } from '../../services/stockService'
+import { fetchAllMA, getCachedMA, getStockQuote } from '../../services/stockService'
 import { formatCurrency, cn } from '../../lib/utils'
+import { collectRebuyAIData, analyzeRebuyPlansStream } from '../../services/rebuyAIService'
+import { getAiConfig } from '../../services/aiService'
+import { RebuyAIDialog } from './RebuyAIDialog'
 
 interface RebuyDashboardProps {
   positions: Position[]
@@ -20,9 +24,9 @@ interface RebuyDashboardProps {
 
 export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
   const isRebuy = mode === 'rebuy'
-  const filteredPositions = positions.filter(p =>
+  const filteredPositions = useMemo(() => positions.filter(p =>
     p.transactions.length > 0 && (isRebuy ? p.quantity === 0 : p.quantity > 0)
-  )
+  ), [positions, isRebuy])
 
   const [ma60Data, setMa60Data] = useState<Record<string, { value: number; source: 'api' } | null>>({})
   const [ma120Data, setMa120Data] = useState<Record<string, number | null>>({})
@@ -36,9 +40,76 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
   const [scoreData, setScoreData] = useState<Record<string, RebuyScoreData | null>>({})
   const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({})
 
-  const getEffectiveMa60 = useCallback((posId: string): number | null => {
-    return ma60Data[posId]?.value ?? null
-  }, [ma60Data])
+  // AI 分析状态
+  const [aiDialogOpen, setAiDialogOpen] = useState(false)
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null)
+  const [aiAnalysisTime, setAiAnalysisTime] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  // 检查某只股票是否有缓存分析
+  const hasCachedAnalysis = useCallback((positionId: string) => {
+    return !!localStorage.getItem(`rebuy-ai-analysis-${positionId}`)
+  }, [])
+
+  // 检查是否有批量缓存分析
+  const hasBatchCachedAnalysis = useCallback(() => {
+    return !!localStorage.getItem('rebuy-ai-analysis-batch')
+  }, [])
+
+  // 从缓存加载分析结果到弹窗
+  const loadCachedAnalysis = useCallback((cacheKey: string) => {
+    try {
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        const { text, time } = JSON.parse(cached)
+        if (text) {
+          setAiAnalysis(text)
+          setAiAnalysisTime(time)
+          return true
+        }
+      }
+    } catch {
+      // 忽略解析错误
+    }
+    return false
+  }, [])
+
+  // 使用 ref 跟踪已初始化的股票 ID，避免无限循环
+  const initializedIdsRef = useRef<Set<string>>(new Set())
+  
+  useEffect(() => {
+    filteredPositions.forEach(p => {
+      // 如果这个股票已经初始化过，跳过
+      if (initializedIdsRef.current.has(p.id)) return
+      
+      const plan = getRebuyPlan(p.id)
+      if (!plan?.enabled) return
+      const cached = getCachedMA(p.symbol)
+      if (!cached) return
+      
+      // 标记为已初始化
+      initializedIdsRef.current.add(p.id)
+      
+      setMa60Data(prev => {
+        const newValue = cached.ma60 !== null ? { value: cached.ma60, source: 'api' } : null
+        if (prev[p.id]?.value === newValue?.value) return prev
+        return { ...prev, [p.id]: newValue }
+      })
+      setMa120Data(prev => {
+        if (prev[p.id]?.value === cached.ma120?.value) return prev
+        return { ...prev, [p.id]: cached.ma120 }
+      })
+      setMa250Data(prev => {
+        if (prev[p.id]?.value === cached.ma250?.value) return prev
+        return { ...prev, [p.id]: cached.ma250 }
+      })
+      setMa500Data(prev => {
+        if (prev[p.id]?.value === cached.ma500?.value) return prev
+        return { ...prev, [p.id]: cached.ma500 }
+      })
+    })
+  }, [filteredPositions])
 
   const doFetchAllMA = useCallback(async (position: Position) => {
     const posId = position.id
@@ -54,7 +125,7 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
       setScoreLoading(prev => ({ ...prev, [posId]: true }))
       const score = await calculateRebuyScore(
         position, plan,
-        allMA.ma60, allMA.ma120, allMA.ma250, allMA.ma500, allMA.ma1000
+        allMA.ma60, allMA.ma120, allMA.ma250, allMA.ma500, null
       )
       setScoreData(prev => ({ ...prev, [posId]: score }))
       setScoreLoading(prev => ({ ...prev, [posId]: false }))
@@ -133,6 +204,105 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
     setSharesInput(prev => ({ ...prev, [posId]: cleaned }))
   }, [])
 
+  // AI 分析处理函数（批量）
+  const handleAIAnalysis = useCallback(async () => {
+    const { endpoint, apiKey, isConfigured } = getAiConfig()
+    if (!isConfigured) {
+      alert('请先在设置中配置 AI 服务')
+      return
+    }
+
+    setAiDialogOpen(true)
+    setAiLoading(true)
+    setAiError(null)
+    setAiAnalysis(null)
+    setAiAnalysisTime(null)
+
+    try {
+      // 收集数据
+      const rebuyPlans: Record<string, RebuyPlan> = {}
+      const maData: Record<string, { ma60: number; ma120: number; ma250: number; ma500: number }> = {}
+
+      for (const p of filteredPositions) {
+        const plan = getRebuyPlan(p.id)
+        if (plan?.enabled) {
+          rebuyPlans[p.id] = plan
+          maData[p.id] = {
+            ma60: ma60Data[p.id]?.value || 0,
+            ma120: ma120Data[p.id] || 0,
+            ma250: ma250Data[p.id] || 0,
+            ma500: ma500Data[p.id] || 0,
+          }
+        }
+      }
+
+      const data = collectRebuyAIData(filteredPositions, rebuyPlans, scoreData as Record<string, RebuyScoreData>, maData)
+      const result = await analyzeRebuyPlansStream(data, endpoint, apiKey, (text) => {
+        flushSync(() => {
+          setAiAnalysis(text)
+        })
+      })
+      const time = new Date().toLocaleString('zh-CN')
+      setAiAnalysis(result)
+      setAiAnalysisTime(time)
+      // 持久化保存 - 批量分析用 batch key
+      localStorage.setItem('rebuy-ai-analysis-batch', JSON.stringify({ text: result, time }))
+    } catch (error) {
+      console.error('AI 分析失败:', error)
+      setAiError(error instanceof Error ? error.message : '分析失败，请稍后重试')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [filteredPositions, ma60Data, ma120Data, ma250Data, ma500Data, scoreData])
+
+  // AI 分析处理函数（单只股票）
+  const handleSingleStockAIAnalysis = useCallback(async (position: Position) => {
+    const { endpoint, apiKey, isConfigured } = getAiConfig()
+    if (!isConfigured) {
+      alert('请先在设置中配置 AI 服务')
+      return
+    }
+
+    setAiDialogOpen(true)
+    setAiLoading(true)
+    setAiError(null)
+    setAiAnalysis(null)
+    setAiAnalysisTime(null)
+
+    try {
+      const rebuyPlans: Record<string, RebuyPlan> = {}
+      const maData: Record<string, { ma60: number; ma120: number; ma250: number; ma500: number }> = {}
+
+      const plan = getRebuyPlan(position.id)
+      if (plan?.enabled) {
+        rebuyPlans[position.id] = plan
+        maData[position.id] = {
+          ma60: ma60Data[position.id]?.value || 0,
+          ma120: ma120Data[position.id] || 0,
+          ma250: ma250Data[position.id] || 0,
+          ma500: ma500Data[position.id] || 0,
+        }
+      }
+
+      const data = collectRebuyAIData([position], rebuyPlans, scoreData as Record<string, RebuyScoreData>, maData)
+      const result = await analyzeRebuyPlansStream(data, endpoint, apiKey, (text) => {
+        flushSync(() => {
+          setAiAnalysis(text)
+        })
+      })
+      const time = new Date().toLocaleString('zh-CN')
+      setAiAnalysis(result)
+      setAiAnalysisTime(time)
+      // 持久化保存 - 单只股票用 positionId 区分
+      localStorage.setItem(`rebuy-ai-analysis-${position.id}`, JSON.stringify({ text: result, time }))
+    } catch (error) {
+      console.error('AI 分析失败:', error)
+      setAiError(error instanceof Error ? error.message : '分析失败，请稍后重试')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [ma60Data, ma120Data, ma250Data, ma500Data, scoreData])
+
   if (filteredPositions.length === 0) {
     const emptyMsg = isRebuy
       ? '暂无已清仓股票，卖出股票后可在此制定回购计划'
@@ -170,6 +340,21 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
               刷新价格
             </button>
             <button
+              onClick={() => {
+                if (hasBatchCachedAnalysis() && !aiLoading) {
+                  loadCachedAnalysis('rebuy-ai-analysis-batch')
+                  setAiDialogOpen(true)
+                } else {
+                  handleAIAnalysis()
+                }
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-primary/50 text-primary bg-primary/5 hover:bg-primary/10 transition-colors"
+              disabled={aiLoading}
+            >
+              <Sparkles className={`h-4 w-4 ${aiLoading ? 'animate-pulse' : ''}`} />
+              {hasBatchCachedAnalysis() && !aiLoading ? '查看分析' : 'AI 智能分析'}
+            </button>
+            <button
               onClick={doFetchAllMAForAll}
               className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border hover:bg-surface-hover transition-colors"
               disabled={Object.values(maLoading).some(Boolean)}
@@ -191,7 +376,7 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
           return (
             <div key={position.id}>
               {!enabled && (
-                <div className="flex items-center justify-between px-4 py-3 rounded-xl border bg-card hover:bg-surface-hover/50 transition-colors">
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl border bg-card hover:bg-surface-hover/50 transition-colors border-l-4 border-l-muted">
                   <div className="flex items-center gap-3">
                     <div className="w-2 h-2 rounded-full bg-gray-300" />
                     <div>
@@ -215,7 +400,7 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
                     </button>
                     <button
                       onClick={() => toggleEnabled(position, true)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg border text-muted-foreground hover:bg-surface-hover hover:text-foreground transition-colors"
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/50 text-primary bg-primary/5 hover:bg-primary/10 transition-colors"
                     >
                       启用回购
                     </button>
@@ -240,6 +425,12 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
                   handleSharesChange={handleSharesChange}
                   isExpanded={expandedCards[position.id] ?? false}
                   onToggleExpand={() => setExpandedCards(prev => ({ ...prev, [position.id]: !prev[position.id] }))}
+                  onSingleAIAnalysis={() => handleSingleStockAIAnalysis(position)}
+                  hasAiAnalysis={hasCachedAnalysis(position.id)}
+                  onViewAiAnalysis={() => {
+                    loadCachedAnalysis(`rebuy-ai-analysis-${position.id}`)
+                    setAiDialogOpen(true)
+                  }}
                 />
               )}
             </div>
@@ -248,32 +439,43 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
       </div>
 
       {enabledCount > 0 && (
-        <div className="rounded-xl border bg-card p-4">
-          <h4 className="font-medium mb-2">评分机制</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-muted-foreground">
-            <div>
-              <p className="font-medium text-foreground mb-1">四维度评分（满分100）</p>
-              <ul className="space-y-0.5 list-disc pl-4">
-                <li><span className="text-foreground">安全垫分</span>（20%权重）：已实现利润 / 原投入</li>
-                <li><span className="text-foreground">趋势分</span>（20%权重）：价格相对 MA60/MA120/MA250/MA500/MA1000 的位置</li>
-                <li><span className="text-foreground">价值分</span>（40%权重）：历史回撤分位数（越高越值）</li>
-                <li><span className="text-foreground">时间分</span>（20%权重）：距上次卖出的天数</li>
+        <div className="rounded-xl border bg-card p-5">
+          <h4 className="font-medium mb-3">评分机制</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-muted-foreground">
+            <div className="rounded-lg bg-muted/20 p-3 border border-muted/30">
+              <p className="font-medium text-foreground mb-2">四维度评分（满分100）</p>
+              <ul className="space-y-1 list-none">
+                <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-gray-400 shrink-0" /><span className="text-foreground">安全垫分</span>（20%权重）：已实现利润 / 原投入</li>
+                <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" /><span className="text-foreground">趋势分</span>（20%权重）：价格相对 MA60/120/250/500/1000</li>
+                <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" /><span className="text-foreground">价值分</span>（40%权重）：历史回撤分位数</li>
+                <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-up shrink-0" /><span className="text-foreground">时间分</span>（20%权重）：距上次卖出的天数</li>
               </ul>
             </div>
-            <div>
-              <p className="font-medium text-foreground mb-1">评级与动态批次</p>
-              <ul className="space-y-0.5 list-disc pl-4">
-                <li>0-20分：禁止回购</li>
-                <li>20-40分：继续观察</li>
-                <li>40-60分：轻仓回购</li>
-                <li>60-80分：分批回购</li>
-                <li>80-100分：积极回购</li>
+            <div className="rounded-lg bg-muted/20 p-3 border border-muted/30">
+              <p className="font-medium text-foreground mb-2">评级与动态批次</p>
+              <ul className="space-y-1 list-none">
+                <li className="flex items-center gap-2"><span className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">0-20</span> 禁止回购</li>
+                <li className="flex items-center gap-2"><span className="px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">20-40</span> 继续观察</li>
+                <li className="flex items-center gap-2"><span className="px-1.5 py-0.5 rounded text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">40-60</span> 轻仓回购</li>
+                <li className="flex items-center gap-2"><span className="px-1.5 py-0.5 rounded text-xs bg-primary/10 text-primary">60-80</span> 分批回购</li>
+                <li className="flex items-center gap-2"><span className="px-1.5 py-0.5 rounded text-xs bg-up/10 text-up">80-100</span> 积极回购</li>
               </ul>
-              <p className="mt-2">安全垫率越高，资金分配越激进（保守→积极）</p>
+              <p className="mt-2 text-xs">安全垫率越高，资金分配越激进（保守→积极）</p>
             </div>
           </div>
         </div>
       )}
+
+      {/* AI 智能分析弹窗 */}
+      <RebuyAIDialog
+        open={aiDialogOpen}
+        onClose={() => setAiDialogOpen(false)}
+        analysis={aiAnalysis}
+        loading={aiLoading}
+        error={aiError}
+        onRetry={handleAIAnalysis}
+        analysisTime={aiAnalysisTime}
+      />
     </div>
   )
 }
@@ -294,6 +496,9 @@ interface RebuyCardProps {
   handleSharesChange: (posId: string, value: string) => void
   isExpanded: boolean
   onToggleExpand: () => void
+  onSingleAIAnalysis: () => void
+  hasAiAnalysis: boolean
+  onViewAiAnalysis: () => void
 }
 
 function RebuyCard({
@@ -312,17 +517,20 @@ function RebuyCard({
   handleSharesChange,
   isExpanded,
   onToggleExpand,
+  onSingleAIAnalysis,
+  hasAiAnalysis,
+  onViewAiAnalysis,
 }: RebuyCardProps) {
   const effectiveMa60 = ma60Data[position.id]?.value ?? null
   const isLoading = maLoading[position.id]
   const cushion = calculateSafetyCushion(position)
   const basePrice = getRebuyBasePrice(position)
   const isCleared = position.quantity === 0
-  const originalShares = position.quantity > 0
+  const clearedShares = position.quantity > 0
     ? position.quantity
-    : (position.costPrice > 0 ? Math.round(position.totalBuyAmount / position.costPrice) : 0)
+    : position.transactions.filter(t => t.type === 'sell').reduce((sum, t) => sum + t.quantity, 0)
   const unitDiff = basePrice ? effPos.currentPrice - basePrice : 0
-  const totalDiff = unitDiff * originalShares
+  const totalDiff = unitDiff * clearedShares
   const score = scoreData[position.id]
   const isScoreLoading = scoreLoading[position.id]
 
@@ -337,33 +545,33 @@ function RebuyCard({
 
   const getScoreColor = (s: number) => {
     if (s <= 20) return 'text-gray-400'
-    if (s <= 40) return 'text-yellow-500'
+    if (s <= 40) return 'text-amber-500'
     if (s <= 60) return 'text-blue-500'
-    if (s <= 80) return 'text-orange-500'
-    return 'text-red-500'
+    if (s <= 80) return 'text-primary'
+    return 'text-up'
   }
 
   const getScoreBg = (s: number) => {
     if (s <= 20) return 'bg-gray-400'
-    if (s <= 40) return 'bg-yellow-500'
+    if (s <= 40) return 'bg-amber-500'
     if (s <= 60) return 'bg-blue-500'
-    if (s <= 80) return 'bg-orange-500'
-    return 'bg-red-500'
+    if (s <= 80) return 'bg-primary'
+    return 'bg-up'
   }
 
   const getRatingBadge = (rating: string) => {
     const map: Record<string, string> = {
       '禁止回购': 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-      '继续观察': 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      '继续观察': 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
       '轻仓回购': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-      '分批回购': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-      '积极回购': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      '分批回购': 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary',
+      '积极回购': 'bg-up/10 text-up dark:bg-up/20 dark:text-up',
     }
     return map[rating] || ''
   }
 
   return (
-    <div className="rounded-xl border bg-card transition-all duration-200 shadow-sm">
+    <div className="rounded-xl border border-up/30 border-l-4 border-l-up bg-card transition-all duration-200 shadow-sm">
       {/* 可点击头部 - 点击切换展开/收起 */}
       {!isExpanded ? (
         <div className="cursor-pointer select-none rounded-t-xl" onClick={onToggleExpand}>
@@ -385,7 +593,7 @@ function RebuyCard({
                 涨幅 <span className={cn('font-mono font-semibold text-sm', basePrice && effPos.currentPrice >= basePrice ? 'text-red-500' : 'text-green-500')}>{basePrice ? `${(((effPos.currentPrice - basePrice) / basePrice) * 100).toFixed(1)}%` : '—'}</span>
                 {basePrice && (
                   <span className={cn('font-mono text-xs', effPos.currentPrice >= basePrice ? 'text-red-500' : 'text-green-500')}>
-                    （单价{formatCurrency(unitDiff)}，总价{formatCurrency(totalDiff)}）
+                    （单价差{formatCurrency(unitDiff)}，总价差{formatCurrency(totalDiff)}）
                   </span>
                 )}
               </span>
@@ -416,6 +624,13 @@ function RebuyCard({
               <span>MA500: <span className="font-mono font-medium">{ma500Data[position.id] ? formatCurrency(ma500Data[position.id]!) : '—'}</span></span>
             </div>
             <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={hasAiAnalysis ? onViewAiAnalysis : onSingleAIAnalysis}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/50 text-primary bg-primary/5 hover:bg-primary/10 transition-colors"
+              >
+                <Sparkles className="h-3 w-3" />
+                {hasAiAnalysis ? '查看分析' : 'AI 分析'}
+              </button>
               <button
                 onClick={() => doFetchAllMA(position)}
                 disabled={isLoading}
@@ -452,6 +667,13 @@ function RebuyCard({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={e => { e.stopPropagation(); hasAiAnalysis ? onViewAiAnalysis() : onSingleAIAnalysis() }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-primary/50 text-primary bg-primary/5 hover:bg-primary/10 transition-colors"
+            >
+              <Sparkles className="h-3 w-3" />
+              {hasAiAnalysis ? '查看分析' : 'AI 分析'}
+            </button>
             <button
               onClick={e => { e.stopPropagation(); doFetchAllMA(position) }}
               disabled={isLoading}
@@ -545,10 +767,58 @@ function RebuyCard({
             )}
           </div>
 
+          {/* 动态批次可视化 */}
+          {score && score.dynamicBatch && score.dynamicBatch.length > 0 && (() => {
+            const plan = getRebuyPlan(position.id)
+            const budget = plan?.totalBudget || 0
+            const batchLabels = ['保守', '适中', '积极']
+            const batchColors = [
+              { bg: 'bg-primary/10', border: 'border-primary/40', text: 'text-primary', bar: 'bg-primary/50' },
+              { bg: 'bg-amber-500/10', border: 'border-amber-500/40', text: 'text-amber-600 dark:text-amber-400', bar: 'bg-amber-500/50' },
+              { bg: 'bg-up/10', border: 'border-up/40', text: 'text-up', bar: 'bg-up/50' },
+            ]
+            return (
+              <div className="rounded-lg border">
+                <div className="bg-muted/50 px-3 py-2 border-b flex items-center justify-between">
+                  <span className="text-sm font-medium">资金分配方案</span>
+                  <span className="text-xs text-muted-foreground">总预算 {formatCurrency(budget)} | 安全垫率 {position.totalBuyAmount ? ((cushion / position.totalBuyAmount) * 100).toFixed(1) : '0'}%</span>
+                </div>
+                <div className="p-3 flex gap-3">
+                  {score.dynamicBatch.map((batch, i) => {
+                    const canExec = batch.canExecute
+                    const colors = batchColors[i] || batchColors[0]
+                    return (
+                      <div
+                        key={batch.batch}
+                        className={cn(
+                          'flex-1 rounded-lg border p-3 transition-all',
+                          canExec ? `${colors.bg} ${colors.border}` : 'bg-muted/20 border-dashed border-muted-foreground/30 opacity-60'
+                        )}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={cn('text-xs font-medium', canExec ? colors.text : 'text-muted-foreground')}>
+                            {batchLabels[i]} {Math.round(batch.fundRatio * 100)}%
+                          </span>
+                          <span className="text-xs text-muted-foreground">≥{batch.triggerScore}分</span>
+                        </div>
+                        <div className="text-sm font-mono font-semibold mb-1">
+                          {formatCurrency(batch.amount)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          实付 {formatCurrency(batch.realCost)}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* 累计亏损警告 */}
           {cushion < 0 && (
-            <div className="rounded-lg p-3 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
-              <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+            <div className="rounded-lg p-3 border border-down/30 bg-down/5">
+              <div className="flex items-center gap-2 text-down">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm font-medium">总安全垫为负 {formatCurrency(cushion)}，买入后真实成本将高于买入价</span>
               </div>
@@ -557,8 +827,8 @@ function RebuyCard({
 
           {/* MA60 缺失警告 */}
           {!effectiveMa60 && !isLoading && (
-            <div className="rounded-lg p-3 border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950">
-              <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
+            <div className="rounded-lg p-3 border border-amber-500/30 bg-amber-500/5">
+              <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                 <AlertTriangle className="h-4 w-4" />
                 <span className="text-sm font-medium">MA60 数据未获取，请点击上方"更新均线"按钮</span>
               </div>
@@ -587,23 +857,23 @@ function RebuyCard({
                 </div>
                 <div className="p-3 space-y-3">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                    <div className="rounded-lg bg-muted/20 px-3 py-2 border border-muted/30">
                       <div className="text-xs text-muted-foreground">买入价</div>
                       <div className="text-sm font-mono font-semibold">{formatCurrency(sim.buyPrice)}</div>
                     </div>
-                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                    <div className="rounded-lg bg-muted/20 px-3 py-2 border border-muted/30">
                       <div className="text-xs text-muted-foreground">投入金额</div>
                       <div className="text-sm font-mono font-semibold">{formatCurrency(sim.investAmount)}</div>
                     </div>
-                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                    <div className="rounded-lg bg-muted/20 px-3 py-2 border border-muted/30">
                       <div className="text-xs text-muted-foreground">真实成本单价</div>
                       <div className={cn('text-sm font-mono font-semibold', sim.realCostPerShare < 0 ? 'text-up' : sim.realCostPerShare > sim.buyPrice ? 'text-down' : '')}>
                         {sim.realCostPerShare < 0 ? '负成本（稳赚）' : formatCurrency(sim.realCostPerShare)}
                       </div>
                     </div>
-                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                    <div className={cn('rounded-lg px-3 py-2 border', sim.realCostPerShare >= 0 && sim.tolerableDrop > 0 ? 'bg-up/5 border-up/20' : 'bg-muted/20 border-muted/30')}>
                       <div className="text-xs text-muted-foreground">可承受跌幅</div>
-                      <div className={cn('text-sm font-mono font-semibold', sim.realCostPerShare < 0 || sim.tolerableDrop <= 0 ? 'text-muted-foreground' : 'text-green-500')}>
+                      <div className={cn('text-sm font-mono font-semibold', sim.realCostPerShare < 0 || sim.tolerableDrop <= 0 ? 'text-muted-foreground' : 'text-up')}>
                         {sim.realCostPerShare < 0 ? '—' : sim.tolerableDrop <= 0 ? '无安全边际' : `${sim.tolerableDrop}%`}
                       </div>
                     </div>
@@ -671,18 +941,18 @@ function RebuyCard({
 function SubScore({ label, value, suffix }: { label: string; value: number; suffix: string }) {
   const getColor = (v: number) => {
     if (v <= 20) return 'bg-gray-400'
-    if (v <= 40) return 'bg-yellow-500'
+    if (v <= 40) return 'bg-amber-500'
     if (v <= 60) return 'bg-blue-500'
-    if (v <= 80) return 'bg-orange-500'
-    return 'bg-red-500'
+    if (v <= 80) return 'bg-primary'
+    return 'bg-up'
   }
   return (
-    <div className="space-y-1">
+    <div className="rounded-lg bg-muted/20 p-2.5 space-y-1.5">
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-mono font-medium">{value}分</span>
       </div>
-      <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden">
         <div className={cn('h-full rounded-full transition-all duration-500', getColor(value))} style={{ width: `${value}%` }} />
       </div>
       <div className="text-xs text-muted-foreground truncate">{suffix}</div>
@@ -692,7 +962,7 @@ function SubScore({ label, value, suffix }: { label: string; value: number; suff
 
 function MetricCard({ label, value, sub, className }: { label: string; value: string; sub?: string; className?: string }) {
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 rounded-lg border bg-card p-3">
       <p className="text-xs text-muted-foreground truncate">{label}</p>
       <p className={cn('text-base font-semibold font-mono tabular-nums truncate', className)}>{value}</p>
       {sub && <p className="text-xs text-muted-foreground truncate mt-0.5">{sub}</p>}

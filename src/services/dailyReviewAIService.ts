@@ -68,20 +68,25 @@ export async function analyzeDailyReview(
   }
 
   try {
-    // 拼接完整URL：endpoint + /api/v1/ai/review/evaluate-daily
-    const url = endpoint.endsWith('/')
-      ? `${endpoint}api/v1/ai/review/evaluate-daily`
-      : `${endpoint}/api/v1/ai/review/evaluate-daily`
+    // 直接使用配置的 endpoint 作为请求地址
+    const url = endpoint
 
     console.log('请求URL:', url)
+
+    // 构建 DashScope 应用接口格式的请求体
+    const requestBody = {
+      input: {
+        prompt: `请分析以下每日复盘数据：\n\n${JSON.stringify(review, null, 2)}`
+      }
+    }
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(review),
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
@@ -110,26 +115,36 @@ export async function analyzeDailyReview(
     console.log('API响应:', result)
 
     // 处理不同的响应格式
-    // 格式1: { code: 200, message: '', data: {...} }
-    // 格式2: { success: true, data: {...} }
-    // 格式3: 直接返回分析结果 {...}
+    // 格式1: DashScope 应用接口格式 { output: { text: "JSON字符串" } }
+    // 格式2: { code: 200, message: '', data: {...} }
+    // 格式3: { success: true, data: {...} }
+    // 格式4: 直接返回分析结果 {...}
 
     let analysisData: DailyReviewAnalysis
 
-    if (result.code !== undefined) {
-      // 格式1
+    if (result.output?.text) {
+      // 格式1: DashScope 应用接口格式，需要解析 text 字段
+      try {
+        const parsedText = JSON.parse(result.output.text)
+        analysisData = parsedText
+      } catch (e) {
+        console.error('解析 DashScope output.text 失败:', e)
+        throw new Error('AI 返回的数据格式错误，无法解析 JSON')
+      }
+    } else if (result.code !== undefined) {
+      // 格式2
       if (result.code !== 200) {
         throw new Error(result.message || '分析失败')
       }
       analysisData = result.data
     } else if (result.success !== undefined) {
-      // 格式2
+      // 格式3
       if (!result.success) {
         throw new Error(result.message || '分析失败')
       }
       analysisData = result.data
     } else if (result.marketAnalysis || result.positionAnalysis || result.operationReview || result.conclusion) {
-      // 格式3: 直接返回分析结果
+      // 格式4: 直接返回分析结果
       analysisData = result
     } else {
       console.error('未知的响应格式:', result)

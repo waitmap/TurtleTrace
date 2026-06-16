@@ -331,15 +331,25 @@ export interface AllMAData {
   ma500: number | null
 }
 
-// 一次性获取所有均线（只发1次请求，仅新浪，不降级）
+const maCache: Record<string, AllMAData> = {}
+
+export function getCachedMA(symbol: string): AllMAData | null {
+  return maCache[symbol] ?? null
+}
+
+// 一次性获取所有均线（只发1次请求，仅新浪，不降级），结果自动缓存
 export async function fetchAllMA(symbol: string): Promise<AllMAData> {
+  const cached = maCache[symbol]
+  if (cached) return cached
   const empty: AllMAData = { ma60: null, ma120: null, ma250: null, ma500: null }
   const closes = await getLongTermKLine(symbol, 500)
   if (!closes) return empty
-  return {
+  const result: AllMAData = {
     ma60: calculateMA(closes, 60),
     ma120: calculateMA(closes, 120),
     ma250: calculateMA(closes, 250),
     ma500: calculateMA(closes, 500),
   }
+  maCache[symbol] = result
+  return result
 }

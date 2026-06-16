@@ -3,9 +3,10 @@ import { PositionManager } from './components/dashboard/PositionManager'
 import { ProfitDashboard } from './components/dashboard/ProfitDashboard'
 import { DataExport } from './components/dashboard/DataExport'
 import { RebuyDashboard } from './components/dashboard/RebuyDashboard'
+import { NewsFeed } from './components/dashboard/NewsFeed'
 import { AccountSwitcher } from './components/dashboard/AccountSwitcher'
 import { AccountManager } from './components/dashboard/AccountManager'
-import { LineChart, TrendingUp, Database, Menu, X, Wallet, ChevronRight, Building2, RefreshCw, Smartphone, Plus } from 'lucide-react'
+import { LineChart, TrendingUp, Database, Menu, X, Wallet, ChevronRight, Building2, RefreshCw, Smartphone, Plus, Newspaper } from 'lucide-react'
 import { TCalculatorTrigger } from './components/dashboard/TCalculator'
 import { WelcomeWizard } from './components/welcome'
 import { MobileApp } from './MobileApp'
@@ -50,7 +51,7 @@ function App() {
     totalProfitPercent: 0,
     positions: [],
   })
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'data' | 'rebuy' | 'add' | 'accounts'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'data' | 'rebuy' | 'add' | 'news' | 'accounts'>('overview')
 
   // 初始化账户系统和数据迁移
   useEffect(() => {
@@ -191,6 +192,7 @@ function App() {
     { id: 'positions' as const, label: '持仓管理', icon: TrendingUp },
     { id: 'rebuy' as const, label: '回购计划', icon: RefreshCw },
     { id: 'add' as const, label: '补仓计划', icon: Plus },
+    { id: 'news' as const, label: '新闻分析', icon: Newspaper },
     { id: 'accounts' as const, label: '账户管理', icon: Building2 },
     { id: 'data' as const, label: '设置', icon: Database },
   ]
@@ -378,6 +380,10 @@ function App() {
               positions={positions}
               mode="add"
             />
+          )}
+
+          {activeTab === 'news' && (
+            <NewsFeed symbols={positions.map(p => p.symbol)} />
           )}
 
           {activeTab === 'accounts' && (

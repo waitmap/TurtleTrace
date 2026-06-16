@@ -1,6 +1,6 @@
 import { Card } from '../ui/card'
 import { Button } from '../ui/button'
-import { TrendingUp, TrendingDown, PieChart, EyeOff, Wallet, Share2, Layers, CalendarDays, Flame, Snowflake, Target } from 'lucide-react'
+import { TrendingUp, TrendingDown, PieChart, EyeOff, Wallet, Share2, Layers, CalendarDays, Activity } from 'lucide-react'
 import type { ProfitSummary, PositionProfit, Position } from '../../types'
 import { formatCurrency, cn } from '../../lib/utils'
 import { ShareDialog } from './ShareDialog'
@@ -110,29 +110,8 @@ export function ProfitDashboard({
   const activeCount = positionProfits.filter(p => p.quantity > 0).length
   const clearedCount = positions.filter(p => p.quantity <= 0).length
 
-  // 今日涨跌王（用 prevClose 计算真实今日涨跌幅）
-  const todayBest = useMemo(() => {
-    const active = positions.filter(p => p.quantity > 0 && p.prevClose && p.prevClose > 0)
-    if (active.length === 0) return null
-    return [...active].sort((a, b) => calcTodayChangePercent(b) - calcTodayChangePercent(a))[0]
-  }, [positions])
-
-  const todayWorst = useMemo(() => {
-    const active = positions.filter(p => p.quantity > 0 && p.prevClose && p.prevClose > 0)
-    if (active.length === 0) return null
-    return [...active].sort((a, b) => calcTodayChangePercent(a) - calcTodayChangePercent(b))[0]
-  }, [positions])
-
   // 累计盈亏最佳/最差
   const activePositions = useMemo(() => positionProfits.filter(p => p.quantity > 0), [positionProfits])
-  const bestPerformer = useMemo(() => {
-    if (activePositions.length === 0) return null
-    return [...activePositions].sort((a, b) => b.profit - a.profit)[0]
-  }, [activePositions])
-  const worstPerformer = useMemo(() => {
-    if (activePositions.length === 0) return null
-    return [...activePositions].sort((a, b) => a.profit - b.profit)[0]
-  }, [activePositions])
 
   // 盈亏金额格式化（带正负号）
   const formatPnL = (amount: number) => {
@@ -148,6 +127,45 @@ export function ProfitDashboard({
 
   return (
     <div className="space-y-6">
+      {/* 今日实时行情 - 最顶部 */}
+      {positions.filter(p => p.quantity > 0 && p.prevClose && p.prevClose > 0).length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold text-sm">今日实时行情</h3>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              行情刷新于 {new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {positions
+              .filter(p => p.quantity > 0 && p.prevClose && p.prevClose > 0)
+              .map(p => {
+                const changePercent = calcTodayChangePercent(p)
+                const isUp = changePercent >= 0
+                const todayAmount = p.prevClose ? (p.currentPrice - p.prevClose) * p.quantity : 0
+                return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors',
+                      isUp ? 'bg-up/10 text-up' : 'bg-down/10 text-down'
+                    )}
+                  >
+                    <span className="font-sans font-medium">{p.name}</span>
+                    <span>{isUp ? '+' : ''}{changePercent.toFixed(2)}%</span>
+                    <span className={cn('tabular-nums', isUp ? 'text-up' : 'text-down')}>
+                      ({todayAmount >= 0 ? '+' : ''}{formatCurrency(todayAmount)})
+                    </span>
+                  </div>
+                )
+              })}
+          </div>
+        </Card>
+      )}
+
       {/* 顶部操作栏 */}
       <Card className="p-4">
         <div className="flex items-center justify-between">
@@ -254,94 +272,89 @@ export function ProfitDashboard({
         </Card>
       </div>
 
-      {/* 持仓详情卡片 */}
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-sm">持仓详情</h3>
+      {/* 盈亏归因 */}
+      <ProfitAttribution positions={positionProfits} clearedProfit={clearedProfit} />
+
+      {/* 持仓详情 + 持仓分布 并列 */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* 持仓详情 */}
+        <Card className="p-5 lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold text-sm">持仓详情</h3>
+            </div>
+            <div className="flex items-center gap-6 text-sm">
+              <div>
+                <span className="text-muted-foreground">总买入 </span>
+                <span className="font-mono font-medium">{formatCurrency(totalCost)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">现市值 </span>
+                <span className="font-mono font-medium">{formatCurrency(totalValue)}</span>
+              </div>
+              <div>
+                <span className="text-muted-foreground">持仓 </span>
+                <span className="font-mono font-medium">{activeCount} 只</span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-6 text-sm">
-            <div>
-              <span className="text-muted-foreground">总买入 </span>
-              <span className="font-mono font-medium">{formatCurrency(totalCost)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">现市值 </span>
-              <span className="font-mono font-medium">{formatCurrency(totalValue)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">持仓 </span>
-              <span className="font-mono font-medium">{activeCount} 只</span>
-            </div>
-          </div>
-        </div>
-        {/* 每只股票对比柱状图 */}
-        {activePositions.length > 0 && (
-          <div className="space-y-3">
-            {activePositions.map((p) => {
-              const valuePercent = p.cost > 0 ? (p.value / p.cost) * 100 : 0
-              const isProfit = p.value >= p.cost
-              return (
-                <div key={p.symbol} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{p.name}</span>
-                      <span className="text-muted-foreground font-mono">{p.symbol}</span>
+          {activePositions.length > 0 && (
+            <div className="space-y-4">
+              {activePositions.map((p) => {
+                const valuePercent = p.cost > 0 ? (p.value / p.cost) * 100 : 0
+                const isProfit = p.value >= p.cost
+                return (
+                  <div key={p.symbol} className={cn("space-y-1.5 rounded-lg px-3 py-2", isProfit ? "bg-up/[0.02]" : "bg-down/[0.02]")}>
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{p.name}</span>
+                        <span className="text-muted-foreground font-mono">{p.symbol}</span>
+                      </div>
+                      <div className="flex items-center gap-3 font-mono">
+                        <span className="text-muted-foreground">成本 {formatCurrency(p.cost)}</span>
+                        <span className={isProfit ? 'text-up' : 'text-down'}>市值 {formatCurrency(p.value)}</span>
+                        <span className={cn("font-semibold", isProfit ? 'text-up' : 'text-down')}>
+                          {formatPnL(p.profit)} ({formatPnLPercent(p.profitPercent)})
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 font-mono">
-                      <span className="text-muted-foreground">成本 {formatCurrency(p.cost)}</span>
-                      <span className={isProfit ? 'text-up' : 'text-down'}>市值 {formatCurrency(p.value)}</span>
-                      <span className={cn("font-semibold", isProfit ? 'text-up' : 'text-down')}>
-                        {formatPnL(p.profit)} ({formatPnLPercent(p.profitPercent)})
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 h-5">
-                    <div className="relative flex-1 h-full bg-muted/30 rounded overflow-hidden">
-                      {/* 成本条（固定100%） */}
-                      <div
-                        className="absolute left-0 top-0 h-full bg-blue-400/30 rounded"
-                        style={{ width: '100%' }}
-                      />
-                      {/* 市值条（相对成本的百分比） */}
-                      <div
-                        className={cn("absolute left-0 top-0 h-full rounded", isProfit ? 'bg-up/40' : 'bg-down/40')}
-                        style={{ width: `${Math.min(valuePercent, 100)}%` }}
-                      />
-                      {/* 百分比标签 */}
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground">
-                        {valuePercent.toFixed(0)}%
+                    <div className="flex items-center gap-1 h-5">
+                      <div className="relative flex-1 h-full bg-muted/30 rounded overflow-hidden">
+                        <div className="absolute left-0 top-0 h-full bg-blue-400/30 rounded" style={{ width: '100%' }} />
+                        <div
+                          className={cn("absolute left-0 top-0 h-full rounded", isProfit ? 'bg-up/40' : 'bg-down/40')}
+                          style={{ width: `${Math.min(valuePercent, 100)}%` }}
+                        />
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground">
+                          {valuePercent.toFixed(0)}%
+                        </div>
                       </div>
                     </div>
                   </div>
+                )
+              })}
+              <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-blue-400/30" />
+                  <span>成本（100%）</span>
                 </div>
-              )
-            })}
-            {/* 图例 */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-blue-400/30" />
-                <span>成本（100%）</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-up/40" />
-                <span>市值 &gt; 成本（盈利）</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded bg-down/40" />
-                <span>市值 &lt; 成本（亏损）</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-up/40" />
+                  <span>市值 &gt; 成本（盈利）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded bg-down/40" />
+                  <span>市值 &lt; 成本（亏损）</span>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        {activePositions.length === 0 && (
-          <div className="text-center py-8 text-muted-foreground text-sm">暂无持仓</div>
-        )}
-      </Card>
+          )}
+          {activePositions.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm">暂无持仓</div>
+          )}
+        </Card>
 
-      {/* 第二行：持仓分布 + 今日表现 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* 持仓分布 */}
         <Card className="p-5 lg:col-span-1">
           <div className="flex items-center gap-2 mb-4">
@@ -353,96 +366,6 @@ export function ProfitDashboard({
           ) : (
             <div className="text-center py-8 text-muted-foreground text-sm">暂无持仓</div>
           )}
-        </Card>
-
-        {/* 今日表现 + 累计盈亏 */}
-        <Card className="p-5 lg:col-span-2">
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="h-4 w-4 text-primary" />
-            <h3 className="font-semibold text-sm">持仓表现</h3>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {/* 今日涨最多 */}
-            <div className="bg-up/5 border border-up/20 rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <Flame className="h-3.5 w-3.5 text-up" />
-                <span className="text-xs font-medium text-up">今日涨最多</span>
-              </div>
-              {todayBest ? (
-                <>
-                  <div className="font-semibold text-sm truncate">{todayBest.name}</div>
-                  <div className="text-lg font-bold text-up font-mono mt-1">
-                    {formatPnLPercent(calcTodayChangePercent(todayBest))}
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatPnL((todayBest.currentPrice - (todayBest.prevClose || 0)) * todayBest.quantity)}
-                  </div>
-                </>
-              ) : (
-                <div className="text-sm text-muted-foreground">暂无数据</div>
-              )}
-            </div>
-            {/* 今日跌最多 */}
-            <div className="bg-down/5 border border-down/20 rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <Snowflake className="h-3.5 w-3.5 text-down" />
-                <span className="text-xs font-medium text-down">今日跌最多</span>
-              </div>
-              {todayWorst ? (
-                <>
-                  <div className="font-semibold text-sm truncate">{todayWorst.name}</div>
-                  <div className="text-lg font-bold text-down font-mono mt-1">
-                    {formatPnLPercent(calcTodayChangePercent(todayWorst))}
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatPnL((todayWorst.currentPrice - (todayWorst.prevClose || 0)) * todayWorst.quantity)}
-                  </div>
-                </>
-              ) : (
-                <div className="text-sm text-muted-foreground">暂无数据</div>
-              )}
-            </div>
-            {/* 累计盈利最多 */}
-            <div className="bg-surface/50 border rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <TrendingUp className="h-3.5 w-3.5 text-up" />
-                <span className="text-xs font-medium text-muted-foreground">累计盈利最多</span>
-              </div>
-              {bestPerformer ? (
-                <>
-                  <div className="font-semibold text-sm truncate">{bestPerformer.name}</div>
-                  <div className="text-lg font-bold text-up font-mono mt-1">
-                    {formatPnL(bestPerformer.profit)}
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatPnLPercent(bestPerformer.profitPercent)}
-                  </div>
-                </>
-              ) : (
-                <div className="text-sm text-muted-foreground">暂无数据</div>
-              )}
-            </div>
-            {/* 累计亏损最多 */}
-            <div className="bg-surface/50 border rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <TrendingDown className="h-3.5 w-3.5 text-down" />
-                <span className="text-xs font-medium text-muted-foreground">累计亏损最多</span>
-              </div>
-              {worstPerformer ? (
-                <>
-                  <div className="font-semibold text-sm truncate">{worstPerformer.name}</div>
-                  <div className={cn("text-lg font-bold font-mono mt-1", worstPerformer.profit >= 0 ? 'text-up' : 'text-down')}>
-                    {formatPnL(worstPerformer.profit)}
-                  </div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatPnLPercent(worstPerformer.profitPercent)}
-                  </div>
-                </>
-              ) : (
-                <div className="text-sm text-muted-foreground">暂无数据</div>
-              )}
-            </div>
-          </div>
         </Card>
       </div>
 
@@ -493,9 +416,6 @@ export function ProfitDashboard({
           </div>
         </Card>
       )}
-
-      {/* 盈亏归因 */}
-      <ProfitAttribution positions={positionProfits} clearedProfit={clearedProfit} />
 
       {/* 对话框 */}
       {clearedProfit && clearedProfitDialogOpen && <ClearedProfitShareDialog clearedProfit={clearedProfit} isOpen={clearedProfitDialogOpen} onClose={() => setClearedProfitDialogOpen(false)} />}

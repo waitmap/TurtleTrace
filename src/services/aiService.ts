@@ -77,18 +77,23 @@ export async function analyzeNews(
   }
 
   try {
-    // 拼接完整URL：endpoint + /api/v1/ai/news/analyze
-    const url = endpoint.endsWith('/')
-      ? `${endpoint}api/v1/ai/news/analyze`
-      : `${endpoint}/api/v1/ai/news/analyze`
+    // 直接使用配置的 endpoint 作为请求地址
+    const url = endpoint
+
+    // 构建 DashScope 应用接口格式的请求体
+    const requestBody = {
+      input: {
+        prompt: `请分析以下新闻：\n\n${JSON.stringify(news, null, 2)}`
+      }
+    }
 
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ news }),
+      body: JSON.stringify(requestBody),
     })
 
     if (!response.ok) {
@@ -113,13 +118,40 @@ export async function analyzeNews(
       throw new Error(ERROR_MESSAGES[errorCode] || `请求失败: ${response.status}`)
     }
 
-    const result: AnalyzeNewsResponse = await response.json()
+    const result = await response.json()
+    console.log('新闻分析API响应:', result)
 
-    if (!result.success || !result.data?.analyses?.[0]) {
+    // 处理 DashScope 应用接口格式: { output: { text: "JSON字符串" } }
+    if (result.output?.text) {
+      try {
+        const parsedText = JSON.parse(result.output.text)
+        console.log('解析 DashScope output.text:', parsedText)
+        // 如果解析后的数据有 analyses 字段，直接返回
+        if (parsedText.analyses) {
+          return {
+            success: true,
+            data: { analyses: parsedText.analyses }
+          }
+        }
+        // 否则包装成标准格式
+        return {
+          success: true,
+          data: { analyses: [parsedText] }
+        }
+      } catch (e) {
+        console.error('解析 DashScope output.text 失败:', e)
+        throw new Error('AI 返回的数据格式错误，无法解析 JSON')
+      }
+    }
+
+    // 处理标准格式
+    const result2: AnalyzeNewsResponse = result
+
+    if (!result2.success || !result2.data?.analyses?.[0]) {
       throw new Error('返回数据格式错误')
     }
 
-    let analysisResult = result.data.analyses[0]
+    let analysisResult = result2.data.analyses[0]
 
     // 处理 summary 是 JSON 字符串的情况（AI返回格式不一致）
     if (typeof analysisResult.summary === 'string' && analysisResult.summary.startsWith('{')) {
@@ -154,9 +186,12 @@ export async function analyzeNews(
 /**
  * 获取AI配置
  */
-export function getAiConfig(): { endpoint: string; apiKey: string } {
+export function getAiConfig(): { endpoint: string; apiKey: string; isConfigured: boolean } {
+  const endpoint = localStorage.getItem('ai-endpoint') || ''
+  const apiKey = localStorage.getItem('ai-api-key') || ''
   return {
-    endpoint: localStorage.getItem('ai-endpoint') || '',
-    apiKey: localStorage.getItem('ai-api-key') || '',
+    endpoint,
+    apiKey,
+    isConfigured: !!(endpoint && apiKey),
   }
 }
