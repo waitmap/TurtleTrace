@@ -5,8 +5,7 @@ import {
   Check, X, AlertTriangle, Wallet,
 } from 'lucide-react'
 import type { Position, RebuyPlan, RebuyScoreData } from '../../types'
-import { calculateRealizedProfit, getRebuyBasePrice, simulateBatchRebuy } from '../../services/rebuyService'
-import type { BatchSimulation } from '../../services/rebuyService'
+import { calculateRealizedProfit, calculateSafetyCushion, getRebuyBasePrice, simulateBatchRebuy } from '../../services/rebuyService'
 import { calculateRebuyScore } from '../../services/rebuyScoreService'
 import {
   getRebuyPlan, saveRebuyPlan,
@@ -16,10 +15,14 @@ import { formatCurrency, cn } from '../../lib/utils'
 
 interface RebuyDashboardProps {
   positions: Position[]
+  mode: 'rebuy' | 'add'
 }
 
-export function RebuyDashboard({ positions }: RebuyDashboardProps) {
-  const allPositions = positions.filter(p => p.transactions.length > 0)
+export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
+  const isRebuy = mode === 'rebuy'
+  const filteredPositions = positions.filter(p =>
+    p.transactions.length > 0 && (isRebuy ? p.quantity === 0 : p.quantity > 0)
+  )
 
   const [ma60Data, setMa60Data] = useState<Record<string, { value: number; source: 'api' | 'manual' } | null>>({})
   const [ma120Data, setMa120Data] = useState<Record<string, number | null>>({})
@@ -33,7 +36,6 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
   const [editBudget, setEditBudget] = useState<Record<string, string>>({})
   const [editMa60, setEditMa60] = useState<Record<string, string>>({})
   const [sharesInput, setSharesInput] = useState<Record<string, string>>({})
-  const [useCurrentPrice, setUseCurrentPrice] = useState<Record<string, boolean>>({})
   const [scoreData, setScoreData] = useState<Record<string, RebuyScoreData | null>>({})
   const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({})
 
@@ -60,7 +62,7 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
 
   // 批量刷新所有已启用计划的均线（逐个获取，间隔500ms防限流）
   const doFetchAllMAForAll = useCallback(async () => {
-    const targets = allPositions.filter(p => {
+    const targets = filteredPositions.filter(p => {
       const plan = getRebuyPlan(p.id)
       return plan?.enabled
     })
@@ -68,7 +70,7 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
       await doFetchAllMA(p)
       await new Promise(resolve => setTimeout(resolve, 500))
     }
-  }, [allPositions, doFetchAllMA])
+  }, [filteredPositions, doFetchAllMA])
 
   // 计算评分
   const doCalculateScore = useCallback(async (position: Position) => {
@@ -109,7 +111,7 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
   const handleRefreshPrices = useCallback(async () => {
     setPriceLoading(true)
     const priceUpdates: Record<string, number> = {}
-    const targets = allPositions.filter(p => getRebuyPlan(p.id)?.enabled)
+    const targets = filteredPositions.filter(p => getRebuyPlan(p.id)?.enabled)
     for (const pos of targets) {
       const quote = await getStockQuote(pos.symbol)
       if (quote) {
@@ -123,7 +125,7 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
     for (const p of targets) {
       doCalculateScore(p)
     }
-  }, [allPositions, doCalculateScore])
+  }, [filteredPositions, doCalculateScore])
 
   // 切换启用状态
   const toggleEnabled = useCallback((position: Position, enabled: boolean) => {
@@ -176,27 +178,32 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
     setSharesInput(prev => ({ ...prev, [posId]: cleaned }))
   }, [])
 
-  if (allPositions.length === 0) {
+  if (filteredPositions.length === 0) {
+    const emptyMsg = isRebuy
+      ? '暂无已清仓股票，卖出股票后可在此制定回购计划'
+      : '暂无持仓股票，请在「持仓管理」中添加股票'
     return (
       <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
         <Shield className="h-16 w-16 mb-4 opacity-20" />
-        <p className="text-lg font-medium mb-2">暂无持仓</p>
-        <p className="text-sm">请先在「持仓管理」中添加股票</p>
+        <p className="text-lg font-medium mb-2">{isRebuy ? '暂无清仓记录' : '暂无持仓'}</p>
+        <p className="text-sm">{emptyMsg}</p>
       </div>
     )
   }
 
-  const enabledCount = allPositions.filter(p => getRebuyPlan(p.id)?.enabled).length
+  const enabledCount = filteredPositions.filter(p => getRebuyPlan(p.id)?.enabled).length
+  const title = isRebuy ? '回购计划' : '补仓计划'
+  const subtitle = isRebuy
+    ? `安全垫驱动型智能回购 — 已启用 ${enabledCount}/${filteredPositions.length} 只`
+    : `持仓补仓决策 — 已启用 ${enabledCount}/${filteredPositions.length} 只`
 
   return (
     <div className="space-y-6">
       {/* 页面头 */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">回购计划</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            安全垫驱动型智能回购 — 已启用 {enabledCount}/{allPositions.length} 只
-          </p>
+          <h2 className="text-2xl font-bold">{title}</h2>
+          <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
         </div>
         {enabledCount > 0 && (
           <div className="flex items-center gap-2">
@@ -222,7 +229,7 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
 
       {/* 股票列表 */}
       <div className="grid gap-3">
-        {allPositions.map(position => {
+        {filteredPositions.map(position => {
           const plan = getRebuyPlan(position.id)
           const enabled = plan?.enabled ?? false
           const realizedProfit = calculateRealizedProfit(position.transactions)
@@ -273,7 +280,6 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
                   editBudget={editBudget}
                   editMa60={editMa60}
                   sharesInput={sharesInput}
-                  useCurrentPrice={useCurrentPrice}
                   getEffectiveMa60={getEffectiveMa60}
                   toggleEnabled={toggleEnabled}
                   saveBudget={saveBudget}
@@ -281,8 +287,6 @@ export function RebuyDashboard({ positions }: RebuyDashboardProps) {
                   doFetchAllMA={doFetchAllMA}
                   doCalculateScore={doCalculateScore}
                   handleSharesChange={handleSharesChange}
-                  setSharesInput={setSharesInput}
-                  setUseCurrentPrice={setUseCurrentPrice}
                   setExpandedConfig={setExpandedConfig}
                   setEditBudget={setEditBudget}
                   setEditMa60={setEditMa60}
@@ -341,7 +345,6 @@ interface RebuyCardProps {
   editBudget: Record<string, string>
   editMa60: Record<string, string>
   sharesInput: Record<string, string>
-  useCurrentPrice: Record<string, boolean>
   getEffectiveMa60: (posId: string) => number | null
   toggleEnabled: (position: Position, enabled: boolean) => void
   saveBudget: (position: Position, budget: number) => void
@@ -349,8 +352,6 @@ interface RebuyCardProps {
   doFetchAllMA: (position: Position) => void
   doCalculateScore: (position: Position) => void
   handleSharesChange: (posId: string, value: string) => void
-  setSharesInput: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  setUseCurrentPrice: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   setExpandedConfig: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
   setEditBudget: React.Dispatch<React.SetStateAction<Record<string, string>>>
   setEditMa60: React.Dispatch<React.SetStateAction<Record<string, string>>>
@@ -371,30 +372,26 @@ function RebuyCard({
   editBudget,
   editMa60,
   sharesInput,
-  useCurrentPrice,
   getEffectiveMa60,
   toggleEnabled,
   saveBudget,
   saveManualMa60,
   doFetchAllMA,
-  doCalculateScore,
   handleSharesChange,
-  setUseCurrentPrice,
   setExpandedConfig,
   setEditBudget,
   setEditMa60,
 }: RebuyCardProps) {
   const plan = getRebuyPlan(position.id)
-  const enabled = plan?.enabled ?? true
   const effectiveMa60 = getEffectiveMa60(position.id)
   const isLoading = maLoading[position.id]
   const realizedProfit = calculateRealizedProfit(position.transactions)
+  const cushion = calculateSafetyCushion(position)
   const basePrice = getRebuyBasePrice(position)
   const isCleared = position.quantity === 0
   const isConfigExpanded = expandedConfig[position.id] ?? false
   const budgetEditing = editBudget[position.id] ?? ''
   const ma60Editing = editMa60[position.id] ?? ''
-  const currentUsePrice = useCurrentPrice[position.id] ?? false
   const score = scoreData[position.id]
   const isScoreLoading = scoreLoading[position.id]
 
@@ -404,12 +401,8 @@ function RebuyCard({
 
   const simulations = useMemo(() => {
     if (validShares <= 0) return []
-    return simulateBatchRebuy(effPos, validShares, currentUsePrice)
-  }, [effPos, validShares, currentUsePrice])
-
-  const getTriggeredStatus = useCallback((batch: BatchSimulation): boolean => {
-    return effPos.currentPrice <= batch.buyPrice
-  }, [effPos.currentPrice])
+    return simulateBatchRebuy(effPos, validShares)
+  }, [effPos, validShares])
 
   // 评分颜色
   const getScoreColor = (s: number) => {
@@ -491,7 +484,7 @@ function RebuyCard({
         {/* 四维度子评分 */}
         {score && (
           <div className="grid grid-cols-2 gap-3">
-            <SubScore label="安全垫" value={score.safetyPadScore} suffix={`利润${formatCurrency(realizedProfit)} / 原投入${formatCurrency(position.totalBuyAmount || 0)}`} />
+            <SubScore label={cushion >= 0 ? '安全垫' : '累计亏损'} value={score.safetyPadScore} suffix={`总安全垫${formatCurrency(cushion)}`} />
             <SubScore label="趋势" value={score.trendScore} suffix={`MA60 ${effectiveMa60 ? formatCurrency(effectiveMa60) : '—'}`} />
             <SubScore label="价值" value={score.valueScore} suffix="回撤分位" />
             <SubScore label="时间" value={score.timeScore} suffix="距卖出天数" />
@@ -502,7 +495,7 @@ function RebuyCard({
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <MetricCard label="现价" value={formatCurrency(effPos.currentPrice)} className={effPos.changePercent >= 0 ? 'text-red-500' : 'text-green-500'} />
           <MetricCard label="MA60" value={isLoading ? '获取中...' : effectiveMa60 ? formatCurrency(effectiveMa60) : '未获取'} sub={effectiveMa60 !== null ? (ma60Data[position.id]?.source === 'manual' ? '手动' : '自动') : ''} className={effectiveMa60 !== null && effPos.currentPrice < effectiveMa60 ? 'text-purple-500' : ''} />
-          <MetricCard label="安全垫厚度" value={position.totalBuyAmount ? `${((realizedProfit / position.totalBuyAmount) * 100).toFixed(1)}%` : '—'} sub={`利润${formatCurrency(realizedProfit)} / 原投入${formatCurrency(position.totalBuyAmount || 0)}`} className={realizedProfit >= 0 ? 'text-up' : 'text-down'} />
+          <MetricCard label={cushion >= 0 ? '安全垫厚度' : '累计亏损率'} value={position.totalBuyAmount ? `${((cushion / position.totalBuyAmount) * 100).toFixed(1)}%` : '—'} sub={`总安全垫${formatCurrency(cushion)} / 原投入${formatCurrency(position.totalBuyAmount || 0)}${!isCleared && cushion > realizedProfit ? `（含浮动${formatCurrency(cushion - realizedProfit)}）` : ''}`} className={cushion >= 0 ? 'text-up' : 'text-down'} />
           <MetricCard label={isCleared ? '最近卖出价' : '持仓成本价'} value={basePrice ? formatCurrency(basePrice) : '暂无'} sub={basePrice ? `距基准 ${(((effPos.currentPrice - basePrice) / basePrice) * 100).toFixed(1)}%` : ''} className={basePrice && effPos.currentPrice < basePrice ? 'text-green-500' : ''} />
         </div>
 
@@ -520,6 +513,16 @@ function RebuyCard({
             </>
           )}
         </div>
+
+        {/* 累计亏损警告 */}
+        {cushion < 0 && (
+          <div className="rounded-lg p-3 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
+            <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm font-medium">总安全垫为负 {formatCurrency(cushion)}，买入后真实成本将高于买入价</span>
+            </div>
+          </div>
+        )}
 
         {/* MA60 缺失警告 */}
         {!effectiveMa60 && !isLoading && (
@@ -547,78 +550,105 @@ function RebuyCard({
             {sharesStr && validShares <= 0 && <span className="text-xs text-orange-500">最少100股</span>}
           </div>
 
-          {/* 买入模拟表 */}
-          {validShares > 0 && simulations.length > 0 && (
-            <div className="rounded-lg border overflow-hidden">
-              <div className="bg-muted/50 px-3 py-2 border-b">
-                <span className="text-sm font-medium">买入模拟（{validShares} 股）</span>
-                <span className="ml-3 text-xs text-muted-foreground">不同触发价下买入 {validShares} 股的效果</span>
+          {/* 买入模拟 — 卡片分栏 */}
+          {validShares > 0 && simulations.length > 0 && (() => {
+            const sim = simulations[0]
+            const downScenarios = [
+              { label: '跌5%', price: sim.buyPrice * 0.95, profit: sim.profitDown5 },
+              { label: '跌10%', price: sim.buyPrice * 0.90, profit: sim.profitDown10 },
+              { label: '跌15%', price: sim.buyPrice * 0.85, profit: sim.profitDown15 },
+            ]
+            const upScenarios = [
+              { label: '涨回现价', price: sim.buyPrice, profit: sim.profitBackToCurrent },
+              { label: '涨1%', price: sim.buyPrice * 1.01, profit: sim.profitUp1 },
+              { label: '涨5%', price: sim.buyPrice * 1.05, profit: sim.profitUp5 },
+              { label: '涨10%', price: sim.buyPrice * 1.10, profit: sim.profitUp10 },
+            ]
+
+            return (
+              <div className="rounded-lg border">
+                <div className="bg-muted/50 px-3 py-2 border-b">
+                  <span className="text-sm font-medium">买入模拟（{validShares} 股）</span>
+                </div>
+                <div className="p-3 space-y-3">
+                  {/* 基础信息 */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">买入价</div>
+                      <div className="text-sm font-mono font-semibold">{formatCurrency(sim.buyPrice)}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">投入金额</div>
+                      <div className="text-sm font-mono font-semibold">{formatCurrency(sim.investAmount)}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">真实成本单价</div>
+                      <div className={cn('text-sm font-mono font-semibold', sim.realCostPerShare < 0 ? 'text-up' : sim.realCostPerShare > sim.buyPrice ? 'text-down' : '')}>
+                        {sim.realCostPerShare < 0 ? '负成本（稳赚）' : formatCurrency(sim.realCostPerShare)}
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-muted/20 px-3 py-2">
+                      <div className="text-xs text-muted-foreground">可承受跌幅</div>
+                      <div className={cn('text-sm font-mono font-semibold', sim.realCostPerShare < 0 || sim.tolerableDrop <= 0 ? 'text-muted-foreground' : 'text-green-500')}>
+                        {sim.realCostPerShare < 0 ? '—' : sim.tolerableDrop <= 0 ? '无安全边际' : `${sim.tolerableDrop}%`}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 下跌 & 反弹 并列 */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1.5">⛔ 下跌时安全垫的作用</div>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-xs text-muted-foreground">
+                            <th className="text-left py-1.5 font-medium">情景</th>
+                            <th className="text-right py-1.5 font-medium">价格</th>
+                            <th className="text-right py-1.5 font-medium">盈亏</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {downScenarios.map((ds, i) => (
+                            <tr key={i} className="border-b last:border-b-0">
+                              <td className="py-2 font-mono">{ds.label}</td>
+                              <td className="text-right py-2 font-mono tabular-nums text-muted-foreground">{formatCurrency(ds.price)}</td>
+                              <td className={cn('text-right py-2 font-mono tabular-nums font-medium', ds.profit >= 0 ? 'text-up' : 'text-down')}>
+                                {ds.profit >= 0 ? '+' : ''}{formatCurrency(ds.profit)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div>
+                      <div className="text-xs font-medium text-muted-foreground mb-1.5">📈 反弹时收益预测</div>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-xs text-muted-foreground">
+                            <th className="text-left py-1.5 font-medium">情景</th>
+                            <th className="text-right py-1.5 font-medium">价格</th>
+                            <th className="text-right py-1.5 font-medium">盈亏</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {upScenarios.map((us, i) => (
+                            <tr key={i} className="border-b last:border-b-0">
+                              <td className="py-2 font-mono">{us.label}</td>
+                              <td className="text-right py-2 font-mono tabular-nums text-muted-foreground">{formatCurrency(us.price)}</td>
+                              <td className={cn('text-right py-2 font-mono tabular-nums font-medium', us.profit >= 0 ? 'text-up' : 'text-down')}>
+                                {us.profit >= 0 ? '+' : ''}{formatCurrency(us.profit)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th className="text-left py-2 px-3 font-medium text-muted-foreground">触发条件</th>
-                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">买入价</th>
-                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">投入金额</th>
-                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">真实成本单价</th>
-                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">可承受跌幅</th>
-                    <th className="text-right py-2 px-3 font-medium text-muted-foreground">涨回基准价赚</th>
-                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {simulations.map((sim, idx) => {
-                    const triggered = getTriggeredStatus(sim)
-                    const icons = ['🥇', '🥈', '']
-                    const batchLabels = ['跌5%时买', '跌10%时买', '跌15%时买']
-                    const actualInvest = validShares * sim.buyPrice
-                    const actualRealCost = actualInvest - realizedProfit
-                    const actualProfit = validShares * (basePrice - sim.buyPrice)
-                    // 真实成本单价
-                    const realCostPerShare = validShares > 0 ? actualRealCost / validShares : 0
-                    // 可承受跌幅 = (买入价 - 真实成本单价) / 买入价
-                    const tolerableDrop = sim.buyPrice > 0 ? ((sim.buyPrice - realCostPerShare) / sim.buyPrice) * 100 : 0
-
-                    return (
-                      <tr key={sim.batch} className={cn('border-b last:border-b-0', triggered ? 'bg-green-50 dark:bg-green-950/30' : '', idx % 2 === 0 ? 'bg-surface/30' : '')}>
-                        <td className="py-2.5 px-3">
-                          <span className="mr-1">{icons[idx]}</span>
-                          <span>{batchLabels[idx]}</span>
-                          {triggered && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">已触发</span>}
-                        </td>
-                        <td className="text-right py-2.5 px-3 font-mono tabular-nums">{formatCurrency(sim.buyPrice)}</td>
-                        <td className="text-right py-2.5 px-3 font-mono tabular-nums">{formatCurrency(actualInvest)}</td>
-                        <td className={cn('text-right py-2.5 px-3 font-mono tabular-nums', realCostPerShare < 0 ? 'text-up' : '')}>
-                          {realCostPerShare < 0 ? '负成本（稳赚）' : formatCurrency(realCostPerShare)}
-                        </td>
-                        <td className="text-right py-2.5 px-3 font-mono tabular-nums text-green-500">
-                          {realCostPerShare < 0 ? '—' : `${tolerableDrop.toFixed(1)}%`}
-                        </td>
-                        <td className="text-right py-2.5 px-3 font-mono tabular-nums text-red-500">+{formatCurrency(actualProfit)}</td>
-                        <td className="text-center py-2.5 px-3">
-                          {triggered ? (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">可执行</span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* 当前价模拟 */}
-          {validShares > 0 && simulations.length > 0 && (
-            <div className="space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" checked={currentUsePrice} onChange={e => setUseCurrentPrice(prev => ({ ...prev, [position.id]: e.target.checked }))} className="rounded border-gray-300" />
-                <span className="text-sm">用当前价 <span className="font-mono font-medium">{formatCurrency(effPos.currentPrice)}</span> 模拟</span>
-              </label>
-            </div>
-          )}
+            )
+          })()}
         </div>
 
         {/* 配置面板 */}

@@ -1,14 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { PositionManager } from './components/dashboard/PositionManager'
 import { ProfitDashboard } from './components/dashboard/ProfitDashboard'
-import { NewsFeed } from './components/dashboard/NewsFeed'
 import { DataExport } from './components/dashboard/DataExport'
-import { ReviewTab } from './components/dashboard/review/ReviewTab'
-import { EventCalendar } from './components/dashboard/eventCalendar/EventCalendar'
 import { RebuyDashboard } from './components/dashboard/RebuyDashboard'
 import { AccountSwitcher } from './components/dashboard/AccountSwitcher'
 import { AccountManager } from './components/dashboard/AccountManager'
-import { LineChart, TrendingUp, Newspaper, Database, BookOpen, Menu, X, Wallet, ChevronRight, Building2, CalendarDays, RefreshCw, Smartphone } from 'lucide-react'
+import { LineChart, TrendingUp, Database, Menu, X, Wallet, ChevronRight, Building2, RefreshCw, Smartphone, Plus } from 'lucide-react'
 import { TCalculatorTrigger } from './components/dashboard/TCalculator'
 import { WelcomeWizard } from './components/welcome'
 import { MobileApp } from './MobileApp'
@@ -53,7 +50,7 @@ function App() {
     totalProfitPercent: 0,
     positions: [],
   })
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'news' | 'data' | 'review' | 'calendar' | 'rebuy' | 'accounts'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'data' | 'rebuy' | 'add' | 'accounts'>('overview')
 
   // 初始化账户系统和数据迁移
   useEffect(() => {
@@ -192,10 +189,8 @@ function App() {
   const tabs = [
     { id: 'overview' as const, label: '总览', icon: LineChart },
     { id: 'positions' as const, label: '持仓管理', icon: TrendingUp },
-    { id: 'review' as const, label: '复盘管理', icon: BookOpen },
-    { id: 'calendar' as const, label: '消息日历', icon: CalendarDays },
     { id: 'rebuy' as const, label: '回购计划', icon: RefreshCw },
-    { id: 'news' as const, label: '新闻快讯', icon: Newspaper },
+    { id: 'add' as const, label: '补仓计划', icon: Plus },
     { id: 'accounts' as const, label: '账户管理', icon: Building2 },
     { id: 'data' as const, label: '设置', icon: Database },
   ]
@@ -371,26 +366,17 @@ function App() {
             />
           )}
 
-          {activeTab === 'news' && (
-            <NewsFeed symbols={positions.map(p => p.symbol)} />
-          )}
-
-          {activeTab === 'review' && (
-            <ReviewTab
-              currentAccountId={currentAccountId}
-              accounts={accounts}
-              positions={positions}
-              profitSummary={summary}
-            />
-          )}
-
-          {activeTab === 'calendar' && (
-            <EventCalendar />
-          )}
-
           {activeTab === 'rebuy' && (
             <RebuyDashboard
               positions={positions}
+              mode="rebuy"
+            />
+          )}
+
+          {activeTab === 'add' && (
+            <RebuyDashboard
+              positions={positions}
+              mode="add"
             />
           )}
 

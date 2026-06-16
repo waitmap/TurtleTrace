@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { PositionManager } from './components/dashboard/PositionManager'
 import { ProfitDashboard } from './components/dashboard/ProfitDashboard'
-import { NewsFeed } from './components/dashboard/NewsFeed'
 import { DataExport } from './components/dashboard/DataExport'
 import { RebuyDashboard } from './components/dashboard/RebuyDashboard'
 import { AccountManager } from './components/dashboard/AccountManager'
@@ -18,13 +17,13 @@ import {
   initializeAccountSystem,
 } from './services/accountService'
 
-type TabId = 'overview' | 'positions' | 'rebuy' | 'news' | 'accounts' | 'data'
+type TabId = 'overview' | 'positions' | 'rebuy' | 'add' | 'accounts' | 'data'
 
 const pageTitles: Record<TabId, string> = {
   overview: '总览',
   positions: '持仓管理',
   rebuy: '回购计划',
-  news: '新闻快讯',
+  add: '补仓计划',
   accounts: '账户管理',
   data: '设置',
 }
@@ -168,11 +167,11 @@ export function MobileApp({ onSwitchToDesktop }: MobileAppProps) {
         )}
 
         {activeTab === 'rebuy' && (
-          <RebuyDashboard positions={positions} />
+          <RebuyDashboard positions={positions} mode="rebuy" />
         )}
 
-        {activeTab === 'news' && (
-          <NewsFeed symbols={positions.map(p => p.symbol)} />
+        {activeTab === 'add' && (
+          <RebuyDashboard positions={positions} mode="add" />
         )}
 
         {activeTab === 'accounts' && (

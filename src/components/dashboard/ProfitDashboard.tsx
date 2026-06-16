@@ -5,6 +5,7 @@ import type { ProfitSummary, PositionProfit, Position } from '../../types'
 import { formatCurrency, cn } from '../../lib/utils'
 import { ShareDialog } from './ShareDialog'
 import { ClearedProfitShareDialog } from './ClearedProfitShareDialog'
+import { ProfitAttribution } from './ProfitAttribution'
 import { useState, useMemo } from 'react'
 
 interface ProfitDashboardProps {
@@ -492,6 +493,9 @@ export function ProfitDashboard({
           </div>
         </Card>
       )}
+
+      {/* 盈亏归因 */}
+      <ProfitAttribution positions={positionProfits} clearedProfit={clearedProfit} />
 
       {/* 对话框 */}
       {clearedProfit && clearedProfitDialogOpen && <ClearedProfitShareDialog clearedProfit={clearedProfit} isOpen={clearedProfitDialogOpen} onClose={() => setClearedProfitDialogOpen(false)} />}

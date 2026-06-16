@@ -24,6 +24,14 @@ export function calculateRealizedProfit(transactions: Transaction[]): number {
   return realizedProfit
 }
 
+// 计算总安全垫（已实现利润 + 持仓浮动盈利）
+export function calculateSafetyCushion(position: Position): number {
+  const realized = calculateRealizedProfit(position.transactions)
+  if (position.quantity <= 0) return realized
+  const unrealized = (position.currentPrice - position.costPrice) * position.quantity
+  return realized + unrealized
+}
+
 // 获取最近一次卖出价格
 export function getLastSellPrice(transactions: Transaction[]): number | null {
   const sells = transactions
@@ -46,47 +54,56 @@ export function getRebuyBasePrice(position: Position): number | null {
 
 // 批次模拟数据结构
 export interface BatchSimulation {
-  batch: number
-  dropPercent: number
+  label: string
   buyPrice: number
   investAmount: number
   realCost: number
-  profitIfBackToBase: number
+  realCostPerShare: number
+  tolerableDrop: number
+  breakEvenRise: number
+  profitDown5: number
+  profitDown10: number
+  profitDown15: number
+  profitBackToCurrent: number
+  profitUp1: number
+  profitUp5: number
+  profitUp10: number
 }
 
-// 批次模拟计算
+// 批次模拟计算（按现价买入，看各价格水平的盈亏）
 export function simulateBatchRebuy(
   position: Position,
   shares: number,
-  useCurrentPrice: boolean = false,
 ): BatchSimulation[] {
-  const basePrice = getRebuyBasePrice(position)
-  if (!basePrice || shares <= 0) return []
-
-  const safetyCushion = calculateRealizedProfit(position.transactions)
   const currentPrice = position.currentPrice
+  if (!currentPrice || currentPrice <= 0 || shares <= 0) return []
 
-  const batches = [
-    { batch: 1, dropPercent: 5 },
-    { batch: 2, dropPercent: 10 },
-    { batch: 3, dropPercent: 15 },
-  ]
+  const safetyCushion = calculateSafetyCushion(position)
+  const buyPrice = currentPrice
+  const investAmount = shares * buyPrice
+  const realCost = investAmount - safetyCushion
+  const realCostPerShare = shares > 0 ? realCost / shares : 0
+  const tolerableDrop = buyPrice > 0 ? Math.max(0, ((buyPrice - realCostPerShare) / buyPrice) * 100) : 0
+  const breakEvenRise = buyPrice > 0 ? Math.max(0, ((realCostPerShare - buyPrice) / buyPrice) * 100) : 0
 
-  return batches.map(({ batch, dropPercent }) => {
-    const buyPrice = useCurrentPrice ? currentPrice : basePrice * (1 - dropPercent / 100)
-    const investAmount = shares * buyPrice
-    const realCost = investAmount - safetyCushion
-    const profitIfBackToBase = (shares * basePrice) - realCost
+  const profitAt = (price: number) => shares > 0 ? shares * (price - realCostPerShare) : 0
 
-    return {
-      batch,
-      dropPercent,
-      buyPrice: Math.round(buyPrice * 100) / 100,
-      investAmount: Math.round(investAmount * 100) / 100,
-      realCost: Math.round(realCost * 100) / 100,
-      profitIfBackToBase: Math.round(profitIfBackToBase * 100) / 100,
-    }
-  })
+  return [{
+    label: '按现价买',
+    buyPrice: Math.round(buyPrice * 100) / 100,
+    investAmount: Math.round(investAmount * 100) / 100,
+    realCost: Math.round(realCost * 100) / 100,
+    realCostPerShare: Math.round(realCostPerShare * 100) / 100,
+    tolerableDrop: Math.round(tolerableDrop * 10) / 10,
+    breakEvenRise: Math.round(breakEvenRise * 10) / 10,
+    profitDown5: Math.round(profitAt(currentPrice * 0.95) * 100) / 100,
+    profitDown10: Math.round(profitAt(currentPrice * 0.90) * 100) / 100,
+    profitDown15: Math.round(profitAt(currentPrice * 0.85) * 100) / 100,
+    profitBackToCurrent: Math.round(profitAt(currentPrice) * 100) / 100,
+    profitUp1: Math.round(profitAt(buyPrice * 1.01) * 100) / 100,
+    profitUp5: Math.round(profitAt(buyPrice * 1.05) * 100) / 100,
+    profitUp10: Math.round(profitAt(buyPrice * 1.10) * 100) / 100,
+  }]
 }
 
 // 计算回购建议
@@ -97,7 +114,7 @@ export function calculateRebuyAdvice(
 ): RebuyAdvice {
   const { totalBudget, batchesExecuted } = plan
   const currentPrice = position.currentPrice
-  const realizedProfit = calculateRealizedProfit(position.transactions)
+  const totalCushion = calculateSafetyCushion(position)
   const basePrice = getRebuyBasePrice(position)
 
   const distanceToMa60 = ma60 > 0 ? ((currentPrice - ma60) / ma60) * 100 : 0
@@ -167,7 +184,7 @@ export function calculateRebuyAdvice(
     statusColor,
     dropPercent,
     distanceToMa60,
-    safetyCushion: realizedProfit,
+    safetyCushion: totalCushion,
     batchAmount,
     batchShares,
     suggestPrice,

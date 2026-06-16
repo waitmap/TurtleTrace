@@ -1,5 +1,5 @@
 import type { Position, RebuyPlan, RebuyScoreData, DynamicBatch } from '../types'
-import { calculateRealizedProfit } from './rebuyService'
+import { calculateRealizedProfit, calculateSafetyCushion } from './rebuyService'
 import { calculateDrawdownPercentile } from './drawdownService'
 
 // 获取最近卖出时间戳
@@ -105,12 +105,13 @@ export async function calculateRebuyScore(
   ma1000: number | null,
 ): Promise<RebuyScoreData> {
   const realizedProfit = calculateRealizedProfit(position.transactions)
+  const safetyCushion = calculateSafetyCushion(position)
   const budget = plan.totalBudget
   const currentPrice = position.currentPrice
   const totalBuyAmount = position.totalBuyAmount || 0
 
-  // 安全垫分（基于原投入金额）
-  const safetyPadScore = Math.round(calcSafetyPadScore(realizedProfit, totalBuyAmount))
+  // 安全垫分（基于总安全垫 = 已实现利润 + 持仓浮动盈利）
+  const safetyPadScore = Math.round(calcSafetyPadScore(safetyCushion, totalBuyAmount))
 
   // 趋势分
   const trendScore = Math.round(calcTrendScore(currentPrice, ma60, ma120, ma250, ma500, ma1000))

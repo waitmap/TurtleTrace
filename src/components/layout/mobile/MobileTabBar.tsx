@@ -1,6 +1,6 @@
-import { LayoutDashboard, TrendingUp, RefreshCw, Newspaper, Building2, Settings } from 'lucide-react'
+import { LayoutDashboard, TrendingUp, RefreshCw, Plus, Building2, Settings } from 'lucide-react'
 
-type TabId = 'overview' | 'positions' | 'rebuy' | 'news' | 'accounts' | 'data'
+type TabId = 'overview' | 'positions' | 'rebuy' | 'add' | 'accounts' | 'data'
 
 interface MobileTabBarProps {
   activeTab: TabId
@@ -11,7 +11,7 @@ const tabs: { id: TabId; icon: typeof LayoutDashboard }[] = [
   { id: 'overview', icon: LayoutDashboard },
   { id: 'positions', icon: TrendingUp },
   { id: 'rebuy', icon: RefreshCw },
-  { id: 'news', icon: Newspaper },
+  { id: 'add', icon: Plus },
   { id: 'accounts', icon: Building2 },
   { id: 'data', icon: Settings },
 ]
