@@ -248,30 +248,12 @@ export async function fetchMa60(symbol: string): Promise<number | null> {
   }
 }
 
-// 从东方财富获取长期K线数据（最多2500条，约10年日线）
-export async function fetchLongTermKLine(symbol: string, days: number = 2500): Promise<number[] | null> {
-  const secId = convertSymbolToSecId(symbol)
-  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secId}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}`
-
-  const response = await fetch(url)
-  if (!response.ok) return null
-
-  const result = await response.json()
-  if (!result.data || !result.data.klines) return null
-
-  const klines: string[] = result.data.klines
-  const closes = klines.map((k: string) => {
-    const parts = k.split(',')
-    return parseFloat(parts[2])
-  }).filter((c: number) => !isNaN(c))
-
-  return closes.length > 0 ? closes : null
-}
-
 // 从新浪获取长期K线数据（最多800条）
 async function fetchLongTermKLineFromSina(symbol: string, days: number = 800): Promise<number[] | null> {
   const sinaCode = convertSymbolToTencentFormat(symbol)
-  const url = `https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${sinaCode}&scale=240&ma=no&datalen=${days}`
+  const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  const host = isDev ? '/api/kline/sina' : 'https://money.finance.sina.com.cn'
+  const url = `${host}/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=${sinaCode}&scale=240&ma=no&datalen=${Math.min(days, 800)}`
 
   const response = await fetch(url)
   if (!response.ok) return null
@@ -289,18 +271,40 @@ async function fetchLongTermKLineFromSina(symbol: string, days: number = 800): P
   return closes.length > 0 ? closes : null
 }
 
-// 获取长期K线数据（东方财富优先，新浪备用）
-export async function getLongTermKLine(symbol: string, days: number = 2500): Promise<number[] | null> {
-  try {
-    const result = await fetchLongTermKLine(symbol, days)
-    if (result) return result
+// 从东方财富获取长期K线数据（最多2500条，约10年日线）
+async function fetchLongTermKLineFromEastMoney(symbol: string, days: number = 2500): Promise<number[] | null> {
+  const secId = convertSymbolToSecId(symbol)
+  const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  const host = isDev ? '/api/kline/eastmoney' : 'https://push2his.eastmoney.com'
+  const url = `${host}/api/qt/stock/kline/get?secid=${secId}&fields1=f1,f2,f3&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=1&end=20500101&lmt=${days}`
 
-    console.warn(`东方财富长期K线失效，切换到新浪备用源: ${symbol}`)
-    return await fetchLongTermKLineFromSina(symbol, Math.min(days, 800))
+  const response = await fetch(url)
+  if (!response.ok) return null
+
+  const result = await response.json()
+  if (!result.data || !result.data.klines) return null
+
+  const klines: string[] = result.data.klines
+  const closes = klines.map((k: string) => {
+    const parts = k.split(',')
+    return parseFloat(parts[2])
+  }).filter((c: number) => !isNaN(c))
+
+  return closes.length > 0 ? closes : null
+}
+
+// 获取长期K线数据（新浪优先，东方财富备用补长数据）
+export async function getLongTermKLine(symbol: string, days: number = 800): Promise<number[] | null> {
+  try {
+    const result = await fetchLongTermKLineFromSina(symbol, days)
+    if (result && result.length >= days) return result
+
+    console.warn(`新浪K线数据不足 ${days} 条，切换到东方财富: ${symbol}`)
+    return await fetchLongTermKLineFromEastMoney(symbol, Math.max(days, 2500))
   } catch (error) {
     try {
-      console.warn(`东方财富长期K线异常，切换到新浪备用源: ${symbol}`)
-      return await fetchLongTermKLineFromSina(symbol, Math.min(days, 800))
+      console.warn(`新浪K线异常，切换到东方财富备用源: ${symbol}`)
+      return await fetchLongTermKLineFromEastMoney(symbol, Math.max(days, 2500))
     } catch (fallbackError) {
       console.error(`获取 ${symbol} 长期K线失败:`, fallbackError)
       return null
@@ -325,19 +329,17 @@ export interface AllMAData {
   ma120: number | null
   ma250: number | null
   ma500: number | null
-  ma1000: number | null
 }
 
-// 一次性获取所有均线（只发1次请求）
+// 一次性获取所有均线（只发1次请求，仅新浪，不降级）
 export async function fetchAllMA(symbol: string): Promise<AllMAData> {
-  const empty: AllMAData = { ma60: null, ma120: null, ma250: null, ma500: null, ma1000: null }
-  const closes = await getLongTermKLine(symbol, 2500)
+  const empty: AllMAData = { ma60: null, ma120: null, ma250: null, ma500: null }
+  const closes = await getLongTermKLine(symbol, 500)
   if (!closes) return empty
   return {
     ma60: calculateMA(closes, 60),
     ma120: calculateMA(closes, 120),
     ma250: calculateMA(closes, 250),
     ma500: calculateMA(closes, 500),
-    ma1000: calculateMA(closes, 1000),
   }
 }

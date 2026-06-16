@@ -1,8 +1,8 @@
 import { useState, useCallback, useMemo } from 'react'
 import {
-  RefreshCw, Shield, TrendingDown,
-  RotateCcw, Loader2, ChevronDown, ChevronUp,
-  Check, X, AlertTriangle, Wallet,
+  RefreshCw, Shield,
+  Loader2, ChevronDown, ChevronUp,
+  AlertTriangle,
 } from 'lucide-react'
 import type { Position, RebuyPlan, RebuyScoreData } from '../../types'
 import { calculateRealizedProfit, calculateSafetyCushion, getRebuyBasePrice, simulateBatchRebuy } from '../../services/rebuyService'
@@ -24,30 +24,22 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
     p.transactions.length > 0 && (isRebuy ? p.quantity === 0 : p.quantity > 0)
   )
 
-  const [ma60Data, setMa60Data] = useState<Record<string, { value: number; source: 'api' | 'manual' } | null>>({})
+  const [ma60Data, setMa60Data] = useState<Record<string, { value: number; source: 'api' } | null>>({})
   const [ma120Data, setMa120Data] = useState<Record<string, number | null>>({})
   const [ma250Data, setMa250Data] = useState<Record<string, number | null>>({})
   const [ma500Data, setMa500Data] = useState<Record<string, number | null>>({})
-  const [ma1000Data, setMa1000Data] = useState<Record<string, number | null>>({})
   const [maLoading, setMaLoading] = useState<Record<string, boolean>>({})
   const [localPrices, setLocalPrices] = useState<Record<string, number>>({})
   const [priceLoading, setPriceLoading] = useState(false)
-  const [expandedConfig, setExpandedConfig] = useState<Record<string, boolean>>({})
-  const [editBudget, setEditBudget] = useState<Record<string, string>>({})
-  const [editMa60, setEditMa60] = useState<Record<string, string>>({})
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({})
   const [sharesInput, setSharesInput] = useState<Record<string, string>>({})
   const [scoreData, setScoreData] = useState<Record<string, RebuyScoreData | null>>({})
   const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({})
 
-  // 获取有效MA60（手动覆盖优先）
   const getEffectiveMa60 = useCallback((posId: string): number | null => {
-    const plan = getRebuyPlan(posId)
-    if (plan?.manualMa60 && plan.manualMa60 > 0) return plan.manualMa60
-    const fetched = ma60Data[posId]
-    return fetched?.value ?? null
+    return ma60Data[posId]?.value ?? null
   }, [ma60Data])
 
-  // 获取单只股票的所有均线（一次请求）
   const doFetchAllMA = useCallback(async (position: Position) => {
     const posId = position.id
     setMaLoading(prev => ({ ...prev, [posId]: true }))
@@ -56,11 +48,19 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
     setMa120Data(prev => ({ ...prev, [posId]: allMA.ma120 }))
     setMa250Data(prev => ({ ...prev, [posId]: allMA.ma250 }))
     setMa500Data(prev => ({ ...prev, [posId]: allMA.ma500 }))
-    setMa1000Data(prev => ({ ...prev, [posId]: allMA.ma1000 }))
     setMaLoading(prev => ({ ...prev, [posId]: false }))
+    const plan = getRebuyPlan(posId)
+    if (plan?.enabled) {
+      setScoreLoading(prev => ({ ...prev, [posId]: true }))
+      const score = await calculateRebuyScore(
+        position, plan,
+        allMA.ma60, allMA.ma120, allMA.ma250, allMA.ma500, allMA.ma1000
+      )
+      setScoreData(prev => ({ ...prev, [posId]: score }))
+      setScoreLoading(prev => ({ ...prev, [posId]: false }))
+    }
   }, [])
 
-  // 批量刷新所有已启用计划的均线（逐个获取，间隔500ms防限流）
   const doFetchAllMAForAll = useCallback(async () => {
     const targets = filteredPositions.filter(p => {
       const plan = getRebuyPlan(p.id)
@@ -72,23 +72,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
     }
   }, [filteredPositions, doFetchAllMA])
 
-  // 计算评分
-  const doCalculateScore = useCallback(async (position: Position) => {
-    const plan = getRebuyPlan(position.id)
-    if (!plan?.enabled) return
-    const posId = position.id
-    setScoreLoading(prev => ({ ...prev, [posId]: true }))
-    const ma60 = getEffectiveMa60(posId)
-    const ma120 = ma120Data[posId]
-    const ma250 = ma250Data[posId]
-    const ma500 = ma500Data[posId]
-    const ma1000 = ma1000Data[posId]
-    const score = await calculateRebuyScore(position, plan, ma60, ma120, ma250, ma500, ma1000)
-    setScoreData(prev => ({ ...prev, [posId]: score }))
-    setScoreLoading(prev => ({ ...prev, [posId]: false }))
-  }, [getEffectiveMa60, ma120Data, ma250Data, ma500Data, ma1000Data])
-
-  // 获取有效价格
   const getEffectivePrice = useCallback((position: Position): number => {
     return localPrices[position.id] ?? position.currentPrice
   }, [localPrices])
@@ -107,7 +90,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
     return position
   }, [getEffectivePrice])
 
-  // 刷新所有价格
   const handleRefreshPrices = useCallback(async () => {
     setPriceLoading(true)
     const priceUpdates: Record<string, number> = {}
@@ -121,57 +103,30 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
     }
     setLocalPrices(prev => ({ ...prev, ...priceUpdates }))
     setPriceLoading(false)
-    // 重新计算评分
     for (const p of targets) {
-      doCalculateScore(p)
+      doFetchAllMA(p)
     }
-  }, [filteredPositions, doCalculateScore])
+  }, [filteredPositions, doFetchAllMA])
 
-  // 切换启用状态
   const toggleEnabled = useCallback((position: Position, enabled: boolean) => {
     const existing = getRebuyPlan(position.id)
-    const defaultBudget = existing?.totalBudget || 10000
     if (enabled) {
       const plan: RebuyPlan = existing || {
-        totalBudget: defaultBudget,
+        totalBudget: 10000,
         batchesExecuted: 0,
         enabled: true,
       }
       saveRebuyPlan(position.id, { ...plan, enabled: true })
-      // 启用时自动获取均线
       doFetchAllMA(position)
+      setExpandedCards(prev => ({ ...prev, [position.id]: false }))
     } else {
       if (existing) {
         saveRebuyPlan(position.id, { ...existing, enabled: false })
       }
       setScoreData(prev => ({ ...prev, [position.id]: null }))
+      setExpandedCards(prev => ({ ...prev, [position.id]: false }))
     }
   }, [doFetchAllMA])
-
-  // 保存预算
-  const saveBudget = useCallback((position: Position, budget: number) => {
-    const existing = getRebuyPlan(position.id) || {
-      totalBudget: budget,
-      batchesExecuted: 0,
-      enabled: true,
-    }
-    saveRebuyPlan(position.id, { ...existing, totalBudget: budget })
-    setEditBudget(prev => ({ ...prev, [position.id]: '' }))
-    doCalculateScore(position)
-  }, [doCalculateScore])
-
-  // 保存手动MA60
-  const saveManualMa60 = useCallback((position: Position, ma60: number | null) => {
-    const existing = getRebuyPlan(position.id)
-    if (!existing) return
-    saveRebuyPlan(position.id, { ...existing, manualMa60: ma60 ?? undefined })
-    setEditMa60(prev => ({ ...prev, [position.id]: '' }))
-    setMa60Data(prev => ({
-      ...prev,
-      [position.id]: ma60 !== null ? { value: ma60, source: 'manual' } : prev[position.id] || null,
-    }))
-    doCalculateScore(position)
-  }, [doCalculateScore])
 
   const handleSharesChange = useCallback((posId: string, value: string) => {
     const cleaned = value.replace(/[^0-9]/g, '')
@@ -199,7 +154,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
 
   return (
     <div className="space-y-6">
-      {/* 页面头 */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">{title}</h2>
@@ -227,7 +181,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
         )}
       </div>
 
-      {/* 股票列表 */}
       <div className="grid gap-3">
         {filteredPositions.map(position => {
           const plan = getRebuyPlan(position.id)
@@ -237,7 +190,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
 
           return (
             <div key={position.id}>
-              {/* 默认列表行 */}
               {!enabled && (
                 <div className="flex items-center justify-between px-4 py-3 rounded-xl border bg-card hover:bg-surface-hover/50 transition-colors">
                   <div className="flex items-center gap-3">
@@ -254,6 +206,14 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
                       原投入 <span className="font-mono font-medium">{formatCurrency(totalBuyAmount)}</span>
                     </span>
                     <button
+                      onClick={() => doFetchAllMA(position)}
+                      disabled={maLoading[position.id]}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border text-muted-foreground hover:bg-surface-hover transition-colors"
+                    >
+                      {maLoading[position.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                      更新均线
+                    </button>
+                    <button
                       onClick={() => toggleEnabled(position, true)}
                       className="px-3 py-1.5 text-xs font-medium rounded-lg border text-muted-foreground hover:bg-surface-hover hover:text-foreground transition-colors"
                     >
@@ -263,7 +223,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
                 </div>
               )}
 
-              {/* 启用后的完整卡片 */}
               {enabled && (
                 <RebuyCard
                   position={position}
@@ -272,24 +231,15 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
                   ma120Data={ma120Data}
                   ma250Data={ma250Data}
                   ma500Data={ma500Data}
-                  ma1000Data={ma1000Data}
                   maLoading={maLoading}
                   scoreData={scoreData}
                   scoreLoading={scoreLoading}
-                  expandedConfig={expandedConfig}
-                  editBudget={editBudget}
-                  editMa60={editMa60}
                   sharesInput={sharesInput}
-                  getEffectiveMa60={getEffectiveMa60}
                   toggleEnabled={toggleEnabled}
-                  saveBudget={saveBudget}
-                  saveManualMa60={saveManualMa60}
                   doFetchAllMA={doFetchAllMA}
-                  doCalculateScore={doCalculateScore}
                   handleSharesChange={handleSharesChange}
-                  setExpandedConfig={setExpandedConfig}
-                  setEditBudget={setEditBudget}
-                  setEditMa60={setEditMa60}
+                  isExpanded={expandedCards[position.id] ?? false}
+                  onToggleExpand={() => setExpandedCards(prev => ({ ...prev, [position.id]: !prev[position.id] }))}
                 />
               )}
             </div>
@@ -297,7 +247,6 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
         })}
       </div>
 
-      {/* 评分说明 */}
       {enabledCount > 0 && (
         <div className="rounded-xl border bg-card p-4">
           <h4 className="font-medium mb-2">评分机制</h4>
@@ -329,32 +278,22 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
   )
 }
 
-// 单张回购卡片
 interface RebuyCardProps {
   position: Position
   effPos: Position
-  ma60Data: Record<string, { value: number; source: 'api' | 'manual' } | null>
+  ma60Data: Record<string, { value: number; source: 'api' } | null>
   ma120Data: Record<string, number | null>
   ma250Data: Record<string, number | null>
   ma500Data: Record<string, number | null>
-  ma1000Data: Record<string, number | null>
   maLoading: Record<string, boolean>
   scoreData: Record<string, RebuyScoreData | null>
   scoreLoading: Record<string, boolean>
-  expandedConfig: Record<string, boolean>
-  editBudget: Record<string, string>
-  editMa60: Record<string, string>
   sharesInput: Record<string, string>
-  getEffectiveMa60: (posId: string) => number | null
   toggleEnabled: (position: Position, enabled: boolean) => void
-  saveBudget: (position: Position, budget: number) => void
-  saveManualMa60: (position: Position, ma60: number | null) => void
-  doFetchAllMA: (position: Position) => void
-  doCalculateScore: (position: Position) => void
+  doFetchAllMA: (position: Position) => Promise<void>
   handleSharesChange: (posId: string, value: string) => void
-  setExpandedConfig: React.Dispatch<React.SetStateAction<Record<string, boolean>>>
-  setEditBudget: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  setEditMa60: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  isExpanded: boolean
+  onToggleExpand: () => void
 }
 
 function RebuyCard({
@@ -364,34 +303,26 @@ function RebuyCard({
   ma120Data,
   ma250Data,
   ma500Data,
-  ma1000Data,
   maLoading,
   scoreData,
   scoreLoading,
-  expandedConfig,
-  editBudget,
-  editMa60,
   sharesInput,
-  getEffectiveMa60,
   toggleEnabled,
-  saveBudget,
-  saveManualMa60,
   doFetchAllMA,
   handleSharesChange,
-  setExpandedConfig,
-  setEditBudget,
-  setEditMa60,
+  isExpanded,
+  onToggleExpand,
 }: RebuyCardProps) {
-  const plan = getRebuyPlan(position.id)
-  const effectiveMa60 = getEffectiveMa60(position.id)
+  const effectiveMa60 = ma60Data[position.id]?.value ?? null
   const isLoading = maLoading[position.id]
-  const realizedProfit = calculateRealizedProfit(position.transactions)
   const cushion = calculateSafetyCushion(position)
   const basePrice = getRebuyBasePrice(position)
   const isCleared = position.quantity === 0
-  const isConfigExpanded = expandedConfig[position.id] ?? false
-  const budgetEditing = editBudget[position.id] ?? ''
-  const ma60Editing = editMa60[position.id] ?? ''
+  const originalShares = position.quantity > 0
+    ? position.quantity
+    : (position.costPrice > 0 ? Math.round(position.totalBuyAmount / position.costPrice) : 0)
+  const unitDiff = basePrice ? effPos.currentPrice - basePrice : 0
+  const totalDiff = unitDiff * originalShares
   const score = scoreData[position.id]
   const isScoreLoading = scoreLoading[position.id]
 
@@ -404,7 +335,6 @@ function RebuyCard({
     return simulateBatchRebuy(effPos, validShares)
   }, [effPos, validShares])
 
-  // 评分颜色
   const getScoreColor = (s: number) => {
     if (s <= 20) return 'text-gray-400'
     if (s <= 40) return 'text-yellow-500'
@@ -433,109 +363,119 @@ function RebuyCard({
   }
 
   return (
-    <div className={cn('rounded-xl border bg-card transition-all duration-200 shadow-sm')}>
-      {/* 卡片头部 */}
-      <div className="p-4 flex items-center justify-between border-b">
-        <div className="flex items-center gap-3">
-          <div className="w-2 h-2 rounded-full bg-green-400" />
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold">{position.name}</h3>
+    <div className="rounded-xl border bg-card transition-all duration-200 shadow-sm">
+      {/* 可点击头部 - 点击切换展开/收起 */}
+      {!isExpanded ? (
+        <div className="cursor-pointer select-none rounded-t-xl" onClick={onToggleExpand}>
+          {/* 第1行：股票名 + 关键数据 */}
+          <div className="p-4 pb-1.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="w-2 h-2 rounded-full bg-green-400" />
+              <h3 className="font-semibold text-base">{position.name}</h3>
               {isCleared && (
                 <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">已清仓</span>
               )}
             </div>
-            <span className="text-xs text-muted-foreground font-mono">{position.symbol}</span>
+            <div className="flex items-center gap-3 text-sm min-w-0">
+              <span className="whitespace-nowrap">
+                现价 <span className={cn('font-mono font-semibold text-sm', effPos.changePercent >= 0 ? 'text-red-500' : 'text-green-500')}>{formatCurrency(effPos.currentPrice)}</span>
+              </span>
+              <span className="text-muted-foreground shrink-0">|</span>
+              <span className="whitespace-nowrap">
+                涨幅 <span className={cn('font-mono font-semibold text-sm', basePrice && effPos.currentPrice >= basePrice ? 'text-red-500' : 'text-green-500')}>{basePrice ? `${(((effPos.currentPrice - basePrice) / basePrice) * 100).toFixed(1)}%` : '—'}</span>
+                {basePrice && (
+                  <span className={cn('font-mono text-xs', effPos.currentPrice >= basePrice ? 'text-red-500' : 'text-green-500')}>
+                    （单价{formatCurrency(unitDiff)}，总价{formatCurrency(totalDiff)}）
+                  </span>
+                )}
+              </span>
+              <span className="text-muted-foreground shrink-0">|</span>
+              <span className="whitespace-nowrap">
+                安全垫 <span className={cn('font-mono font-semibold text-sm', cushion >= 0 ? 'text-up' : 'text-down')}>
+                  {position.totalBuyAmount ? `${((cushion / position.totalBuyAmount) * 100).toFixed(1)}%` : '—'}
+                </span>
+              </span>
+              <span className="text-muted-foreground shrink-0">|</span>
+              <span className="whitespace-nowrap">
+                {isCleared ? '卖出' : '成本'} <span className="font-mono font-semibold text-sm">{basePrice ? formatCurrency(basePrice) : '—'}</span>
+              </span>
+              <span className="text-muted-foreground shrink-0">|</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                总安全垫{formatCurrency(cushion)} / 原投入{formatCurrency(position.totalBuyAmount || 0)}
+              </span>
+            </div>
+          </div>
+          {/* 第2行：代码 + MA均线 + 按钮 */}
+          <div className="px-4 pb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 text-xs text-muted-foreground min-w-0">
+              <span className="font-mono text-xs">{position.symbol}</span>
+              <span className="text-muted-foreground">|</span>
+              <span>MA60: <span className="font-mono font-medium">{isLoading ? '获取中...' : effectiveMa60 ? formatCurrency(effectiveMa60) : '—'}</span></span>
+              <span>MA120: <span className="font-mono font-medium">{ma120Data[position.id] ? formatCurrency(ma120Data[position.id]!) : '—'}</span></span>
+              <span>MA250: <span className="font-mono font-medium">{ma250Data[position.id] ? formatCurrency(ma250Data[position.id]!) : '—'}</span></span>
+              <span>MA500: <span className="font-mono font-medium">{ma500Data[position.id] ? formatCurrency(ma500Data[position.id]!) : '—'}</span></span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+              <button
+                onClick={() => doFetchAllMA(position)}
+                disabled={isLoading}
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border text-muted-foreground hover:bg-surface-hover transition-colors"
+              >
+                {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                更新均线
+              </button>
+              <button
+                onClick={() => toggleEnabled(position, false)}
+                className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-primary text-primary-foreground border-primary hover:opacity-90 transition-colors"
+              >
+                已启用
+              </button>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </div>
           </div>
         </div>
-        <button
-          onClick={() => toggleEnabled(position, false)}
-          className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-primary text-primary-foreground border-primary hover:opacity-90 transition-colors"
+      ) : (
+        <div
+          className="p-4 flex items-center justify-between cursor-pointer select-none hover:bg-surface-hover/30 transition-colors rounded-t-xl"
+          onClick={onToggleExpand}
         >
-          已启用
-        </button>
-      </div>
-
-      {/* 主体内容 */}
-      <div className="p-4 space-y-4">
-        {/* 评分进度条 + 评级 */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">综合评分</span>
-            {score && (
-              <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', getRatingBadge(score.rating))}>
-                {score.rating}
-              </span>
-            )}
-          </div>
-          <div className="relative h-6 bg-muted/30 rounded-full overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all duration-500', getScoreBg(score?.total || 0))}
-              style={{ width: `${score?.total || 0}%` }}
-            />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className={cn('text-sm font-bold font-mono', score?.total ? getScoreColor(score.total) : 'text-muted-foreground')}>
-                {isScoreLoading ? '计算中...' : score ? `${score.total}分` : '—'}
-              </span>
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-green-400" />
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold">{position.name}</h3>
+                {isCleared && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">已清仓</span>
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground font-mono">{position.symbol}</span>
             </div>
           </div>
-        </div>
-
-        {/* 四维度子评分 */}
-        {score && (
-          <div className="grid grid-cols-2 gap-3">
-            <SubScore label={cushion >= 0 ? '安全垫' : '累计亏损'} value={score.safetyPadScore} suffix={`总安全垫${formatCurrency(cushion)}`} />
-            <SubScore label="趋势" value={score.trendScore} suffix={`MA60 ${effectiveMa60 ? formatCurrency(effectiveMa60) : '—'}`} />
-            <SubScore label="价值" value={score.valueScore} suffix="回撤分位" />
-            <SubScore label="时间" value={score.timeScore} suffix="距卖出天数" />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={e => { e.stopPropagation(); doFetchAllMA(position) }}
+              disabled={isLoading}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border text-muted-foreground hover:bg-surface-hover transition-colors"
+            >
+              {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              更新均线
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); toggleEnabled(position, false) }}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border bg-primary text-primary-foreground border-primary hover:opacity-90 transition-colors"
+            >
+              已启用
+            </button>
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
           </div>
-        )}
-
-        {/* 关键指标 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard label="现价" value={formatCurrency(effPos.currentPrice)} className={effPos.changePercent >= 0 ? 'text-red-500' : 'text-green-500'} />
-          <MetricCard label="MA60" value={isLoading ? '获取中...' : effectiveMa60 ? formatCurrency(effectiveMa60) : '未获取'} sub={effectiveMa60 !== null ? (ma60Data[position.id]?.source === 'manual' ? '手动' : '自动') : ''} className={effectiveMa60 !== null && effPos.currentPrice < effectiveMa60 ? 'text-purple-500' : ''} />
-          <MetricCard label={cushion >= 0 ? '安全垫厚度' : '累计亏损率'} value={position.totalBuyAmount ? `${((cushion / position.totalBuyAmount) * 100).toFixed(1)}%` : '—'} sub={`总安全垫${formatCurrency(cushion)} / 原投入${formatCurrency(position.totalBuyAmount || 0)}${!isCleared && cushion > realizedProfit ? `（含浮动${formatCurrency(cushion - realizedProfit)}）` : ''}`} className={cushion >= 0 ? 'text-up' : 'text-down'} />
-          <MetricCard label={isCleared ? '最近卖出价' : '持仓成本价'} value={basePrice ? formatCurrency(basePrice) : '暂无'} sub={basePrice ? `距基准 ${(((effPos.currentPrice - basePrice) / basePrice) * 100).toFixed(1)}%` : ''} className={basePrice && effPos.currentPrice < basePrice ? 'text-green-500' : ''} />
         </div>
+      )}
 
-        {/* 均线 + 回撤信息 */}
-        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-          <span>MA60: <span className="font-mono font-medium">{effectiveMa60 ? formatCurrency(effectiveMa60) : '—'}</span></span>
-          <span>MA120: <span className="font-mono font-medium">{ma120Data[position.id] ? formatCurrency(ma120Data[position.id]!) : '—'}</span></span>
-          <span>MA250: <span className="font-mono font-medium">{ma250Data[position.id] ? formatCurrency(ma250Data[position.id]!) : '—'}</span></span>
-          <span>MA500: <span className="font-mono font-medium">{ma500Data[position.id] ? formatCurrency(ma500Data[position.id]!) : '—'}</span></span>
-          <span>MA1000: <span className="font-mono font-medium">{ma1000Data[position.id] ? formatCurrency(ma1000Data[position.id]!) : '—'}</span></span>
-          {score && (
-            <>
-              <span>回撤分位: <span className="font-mono font-medium">{score.valueScore}%</span></span>
-              <span>历史最高: <span className="font-mono font-medium">—</span></span>
-            </>
-          )}
-        </div>
 
-        {/* 累计亏损警告 */}
-        {cushion < 0 && (
-          <div className="rounded-lg p-3 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
-            <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="text-sm font-medium">总安全垫为负 {formatCurrency(cushion)}，买入后真实成本将高于买入价</span>
-            </div>
-          </div>
-        )}
-
-        {/* MA60 缺失警告 */}
-        {!effectiveMa60 && !isLoading && (
-          <div className="rounded-lg p-3 border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950">
-            <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="text-sm font-medium">MA60 数据未获取，请点击"刷新均线"或在配置中输入手动值</span>
-            </div>
-          </div>
-        )}
-
-        {/* 股数输入 + 批次模拟 */}
-        <div className="space-y-3">
+      {/* 展开状态 */ }
+      {isExpanded && (
+        <div className="p-4 space-y-4">
+          {/* 上部：股数输入 */}
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium whitespace-nowrap">我想买回</span>
             <input
@@ -546,11 +486,86 @@ function RebuyCard({
               placeholder="输入股数"
               className="w-32 px-3 py-2 text-sm rounded-lg border bg-background text-center font-mono tabular-nums"
             />
-            <span className="text-sm text-muted-foreground whitespace-nowrap">股（最多10,000股，步长100）</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">股（步长100，最多10,000）</span>
             {sharesStr && validShares <= 0 && <span className="text-xs text-orange-500">最少100股</span>}
           </div>
 
-          {/* 买入模拟 — 卡片分栏 */}
+          {/* 评分进度条 + 评级 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">综合评分</span>
+              {score && (
+                <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', getRatingBadge(score.rating))}>
+                  {score.rating}
+                </span>
+              )}
+            </div>
+            <div className="relative h-6 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={cn('h-full rounded-full transition-all duration-500', getScoreBg(score?.total || 0))}
+                style={{ width: `${score?.total || 0}%` }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className={cn('text-sm font-bold font-mono', score?.total ? getScoreColor(score.total) : 'text-muted-foreground')}>
+                  {isScoreLoading ? '计算中...' : score ? `${score.total}分` : '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 四维度子评分 */}
+          {score && (
+            <div className="grid grid-cols-2 gap-3">
+              <SubScore label={cushion >= 0 ? '安全垫' : '累计亏损'} value={score.safetyPadScore} suffix={`总安全垫${formatCurrency(cushion)}`} />
+              <SubScore label="趋势" value={score.trendScore} suffix={`MA60 ${effectiveMa60 ? formatCurrency(effectiveMa60) : '—'}`} />
+              <SubScore label="价值" value={score.valueScore} suffix="回撤分位" />
+              <SubScore label="时间" value={score.timeScore} suffix="距卖出天数" />
+            </div>
+          )}
+
+          {/* 关键指标 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <MetricCard label="现价" value={formatCurrency(effPos.currentPrice)} className={effPos.changePercent >= 0 ? 'text-red-500' : 'text-green-500'} />
+            <MetricCard label="MA60" value={isLoading ? '获取中...' : effectiveMa60 ? formatCurrency(effectiveMa60) : '未获取'} sub={effectiveMa60 !== null ? '自动' : ''} className={effectiveMa60 !== null && effPos.currentPrice < effectiveMa60 ? 'text-purple-500' : ''} />
+            <MetricCard label={cushion >= 0 ? '安全垫厚度' : '累计亏损率'} value={position.totalBuyAmount ? `${((cushion / position.totalBuyAmount) * 100).toFixed(1)}%` : '—'} sub={`总安全垫${formatCurrency(cushion)} / 原投入${formatCurrency(position.totalBuyAmount || 0)}${!isCleared && cushion > calculateRealizedProfit(position.transactions) ? `（含浮动${formatCurrency(cushion - calculateRealizedProfit(position.transactions))}）` : ''}`} className={cushion >= 0 ? 'text-up' : 'text-down'} />
+            <MetricCard label={isCleared ? '最近卖出价' : '持仓成本价'} value={basePrice ? formatCurrency(basePrice) : '暂无'} sub={basePrice ? `${(((effPos.currentPrice - basePrice) / basePrice) * 100).toFixed(1)}%` : ''} />
+          </div>
+
+          {/* 均线详情 */}
+          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+            <span>MA60: <span className="font-mono font-medium">{effectiveMa60 ? formatCurrency(effectiveMa60) : '—'}</span></span>
+            <span>MA120: <span className="font-mono font-medium">{ma120Data[position.id] ? formatCurrency(ma120Data[position.id]!) : '—'}</span></span>
+            <span>MA250: <span className="font-mono font-medium">{ma250Data[position.id] ? formatCurrency(ma250Data[position.id]!) : '—'}</span></span>
+            <span>MA500: <span className="font-mono font-medium">{ma500Data[position.id] ? formatCurrency(ma500Data[position.id]!) : '—'}</span></span>
+            {score && (
+              <>
+                <span>回撤分位: <span className="font-mono font-medium">{score.valueScore}%</span></span>
+                <span>历史最高: <span className="font-mono font-medium">—</span></span>
+              </>
+            )}
+          </div>
+
+          {/* 累计亏损警告 */}
+          {cushion < 0 && (
+            <div className="rounded-lg p-3 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950">
+              <div className="flex items-center gap-2 text-red-700 dark:text-red-400">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="text-sm font-medium">总安全垫为负 {formatCurrency(cushion)}，买入后真实成本将高于买入价</span>
+              </div>
+            </div>
+          )}
+
+          {/* MA60 缺失警告 */}
+          {!effectiveMa60 && !isLoading && (
+            <div className="rounded-lg p-3 border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950">
+              <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="text-sm font-medium">MA60 数据未获取，请点击上方"更新均线"按钮</span>
+              </div>
+            </div>
+          )}
+
+          {/* 买入模拟 */}
           {validShares > 0 && simulations.length > 0 && (() => {
             const sim = simulations[0]
             const downScenarios = [
@@ -571,7 +586,6 @@ function RebuyCard({
                   <span className="text-sm font-medium">买入模拟（{validShares} 股）</span>
                 </div>
                 <div className="p-3 space-y-3">
-                  {/* 基础信息 */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div className="rounded-md bg-muted/20 px-3 py-2">
                       <div className="text-xs text-muted-foreground">买入价</div>
@@ -595,7 +609,6 @@ function RebuyCard({
                     </div>
                   </div>
 
-                  {/* 下跌 & 反弹 并列 */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <div className="text-xs font-medium text-muted-foreground mb-1.5">⛔ 下跌时安全垫的作用</div>
@@ -650,70 +663,11 @@ function RebuyCard({
             )
           })()}
         </div>
-
-        {/* 配置面板 */}
-        <div>
-          <button onClick={() => setExpandedConfig(prev => ({ ...prev, [position.id]: !prev[position.id] }))} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            {isConfigExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            配置
-          </button>
-          {isConfigExpanded && (
-            <div className="mt-3 p-4 rounded-lg border bg-muted/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">回购预算</span>
-                <div className="flex items-center gap-2">
-                  {budgetEditing ? (
-                    <>
-                      <input type="number" value={budgetEditing} onChange={e => setEditBudget(prev => ({ ...prev, [position.id]: e.target.value }))} className="w-28 px-2 py-1 text-sm rounded border bg-background text-right font-mono" placeholder={plan?.totalBudget?.toString()} autoFocus />
-                      <button onClick={() => { const val = parseFloat(budgetEditing); if (!isNaN(val) && val > 0) saveBudget(position, val) }} className="p-1 rounded hover:bg-surface-hover text-green-500"><Check className="h-4 w-4" /></button>
-                      <button onClick={() => setEditBudget(prev => ({ ...prev, [position.id]: '' }))} className="p-1 rounded hover:bg-surface-hover text-muted-foreground"><X className="h-4 w-4" /></button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-sm font-mono">{plan ? formatCurrency(plan.totalBudget) : '未设置'}</span>
-                      <button onClick={() => setEditBudget(prev => ({ ...prev, [position.id]: (plan?.totalBudget || 10000).toString() }))} className="p-1 rounded hover:bg-surface-hover text-muted-foreground"><Wallet className="h-4 w-4" /></button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">MA60（手动覆盖）</span>
-                <div className="flex items-center gap-2">
-                  {ma60Editing ? (
-                    <>
-                      <input type="number" step="0.01" value={ma60Editing} onChange={e => setEditMa60(prev => ({ ...prev, [position.id]: e.target.value }))} className="w-28 px-2 py-1 text-sm rounded border bg-background text-right font-mono" placeholder={plan?.manualMa60?.toString()} autoFocus />
-                      <button onClick={() => { const val = parseFloat(ma60Editing); if (!isNaN(val) && val > 0) saveManualMa60(position, val) }} className="p-1 rounded hover:bg-surface-hover text-green-500"><Check className="h-4 w-4" /></button>
-                      <button onClick={() => setEditMa60(prev => ({ ...prev, [position.id]: '' }))} className="p-1 rounded hover:bg-surface-hover text-muted-foreground"><X className="h-4 w-4" /></button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-sm font-mono">{plan?.manualMa60 ? formatCurrency(plan.manualMa60) : '未设置'}</span>
-                      <button onClick={() => setEditMa60(prev => ({ ...prev, [position.id]: (plan?.manualMa60 || effectiveMa60 || '').toString() }))} className="p-1 rounded hover:bg-surface-hover text-muted-foreground"><TrendingDown className="h-4 w-4" /></button>
-                      {plan?.manualMa60 && (
-                        <button onClick={() => saveManualMa60(position, null)} className="p-1 rounded hover:bg-surface-hover text-muted-foreground" title="清除手动值"><RotateCcw className="h-4 w-4" /></button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-              {!plan?.manualMa60 && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">MA60（自动获取）</span>
-                  <button onClick={() => doFetchAllMA(position)} disabled={maLoading[position.id]} className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border hover:bg-surface-hover transition-colors">
-                    {maLoading[position.id] ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                    更新均线
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   )
 }
 
-// 子评分组件
 function SubScore({ label, value, suffix }: { label: string; value: number; suffix: string }) {
   const getColor = (v: number) => {
     if (v <= 20) return 'bg-gray-400'
@@ -736,7 +690,6 @@ function SubScore({ label, value, suffix }: { label: string; value: number; suff
   )
 }
 
-// 指标卡片子组件
 function MetricCard({ label, value, sub, className }: { label: string; value: string; sub?: string; className?: string }) {
   return (
     <div className="min-w-0">
