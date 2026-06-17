@@ -92,20 +92,20 @@ export function RebuyDashboard({ positions, mode }: RebuyDashboardProps) {
       initializedIdsRef.current.add(p.id)
       
       setMa60Data(prev => {
-        const newValue = cached.ma60 !== null ? { value: cached.ma60, source: 'api' } : null
+        const newValue = cached.ma60 !== null ? { value: cached.ma60, source: 'api' as const } : null
         if (prev[p.id]?.value === newValue?.value) return prev
         return { ...prev, [p.id]: newValue }
       })
       setMa120Data(prev => {
-        if (prev[p.id]?.value === cached.ma120?.value) return prev
+        if (prev[p.id] === cached.ma120) return prev
         return { ...prev, [p.id]: cached.ma120 }
       })
       setMa250Data(prev => {
-        if (prev[p.id]?.value === cached.ma250?.value) return prev
+        if (prev[p.id] === cached.ma250) return prev
         return { ...prev, [p.id]: cached.ma250 }
       })
       setMa500Data(prev => {
-        if (prev[p.id]?.value === cached.ma500?.value) return prev
+        if (prev[p.id] === cached.ma500) return prev
         return { ...prev, [p.id]: cached.ma500 }
       })
     })

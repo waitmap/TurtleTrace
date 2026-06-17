@@ -126,18 +126,12 @@ export async function analyzeNews(
       try {
         const parsedText = JSON.parse(result.output.text)
         console.log('解析 DashScope output.text:', parsedText)
-        // 如果解析后的数据有 analyses 字段，直接返回
+        // 如果解析后的数据有 analyses 字段，取第一条
         if (parsedText.analyses) {
-          return {
-            success: true,
-            data: { analyses: parsedText.analyses }
-          }
+          return parsedText.analyses[0] as NewsAnalysis
         }
-        // 否则包装成标准格式
-        return {
-          success: true,
-          data: { analyses: [parsedText] }
-        }
+        // 否则直接作为分析结果
+        return parsedText as NewsAnalysis
       } catch (e) {
         console.error('解析 DashScope output.text 失败:', e)
         throw new Error('AI 返回的数据格式错误，无法解析 JSON')

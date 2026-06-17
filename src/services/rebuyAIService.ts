@@ -54,14 +54,13 @@ const ERROR_MESSAGES: Record<string, string> = {
 export function collectRebuyAIData(
   positions: Position[],
   rebuyPlans: Record<string, RebuyPlan>,
-  scoreData: Record<string, RebuyScoreData>,
+  _scoreData: Record<string, RebuyScoreData>,
   maData: Record<string, { ma60: number; ma120: number; ma250: number; ma500: number }>
 ): RebuyAIData {
   const stocks: RebuyAIData['stocks'] = []
 
   for (const position of positions) {
     const plan = rebuyPlans[position.id]
-    const score = scoreData[position.id]
 
     // 只处理有回购计划的股票
     if (!plan || !plan.enabled) continue
